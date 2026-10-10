@@ -1,0 +1,2517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zippy — Live Arm Control</title>
+<style>
+  :root{
+    --bg:#0e0f11;
+    --panel:#17181b;
+    --panel-2:#1f2124;
+    --border:#2a2c30;
+    --text:#e8e6e1;
+    --text-dim:#8b8d92;
+    --accent:#5dcaa5;
+    --accent-dim:#1d9e75;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;}
+  #app{display:flex;width:100vw;height:100vh;}
+  #viewport{flex:1;position:relative;min-width:0;}
+  #canvas-host{position:absolute;inset:0;}
+  #canvas-host canvas{display:block;width:100%;height:100%;}
+  #status{
+    position:absolute;top:16px;left:16px;
+    font-size:12px;color:var(--text-dim);
+    background:rgba(23,24,27,0.85);border:1px solid var(--border);
+    padding:6px 10px;border-radius:6px;
+    display:flex;align-items:center;gap:6px;
+  }
+  #status .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+  #status.loading .dot{background:#e0a02f;}
+  #panel{
+    width:300px;flex-shrink:0;
+    background:var(--panel);border-left:1px solid var(--border);
+    display:flex;flex-direction:column;
+    overflow-y:auto;
+  }
+  #panel-header{padding:20px 20px 12px;border-bottom:1px solid var(--border);}
+  #panel-header h1{font-size:15px;font-weight:600;margin:0 0 4px;letter-spacing:-0.01em;}
+  #panel-header p{font-size:12px;color:var(--text-dim);margin:0;line-height:1.5;}
+  .section{padding:16px 20px;border-bottom:1px solid var(--border);}
+  .section-title{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-dim);margin:0 0 12px;font-weight:600;}
+  .finger-row{margin-bottom:14px;}
+  .finger-row:last-child{margin-bottom:0;}
+  .finger-label{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:13px;margin-bottom:6px;
+  }
+  .finger-label span:last-child{color:var(--text-dim);font-size:11px;font-variant-numeric:tabular-nums;}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:4px;border-radius:2px;
+    background:var(--panel-2);outline:none;
+    border:1px solid var(--border);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:16px;height:16px;border-radius:50%;
+    background:var(--accent);cursor:pointer;
+    border:2px solid var(--bg);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:2px solid var(--bg);
+  }
+  .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+  button{
+    font-family:inherit;font-size:12px;font-weight:500;
+    background:var(--panel-2);color:var(--text);
+    border:1px solid var(--border);border-radius:6px;
+    padding:8px 12px;cursor:pointer;
+    transition:background 0.15s, border-color 0.15s;
+  }
+  button:hover{background:#26282c;border-color:#3a3c40;}
+  button:active{transform:scale(0.98);}
+  button.primary{background:var(--accent-dim);border-color:var(--accent-dim);color:#eafff5;}
+  button.primary:hover{background:#0f7e60;}
+  #cache-info{
+    font-size:11px;color:var(--text-dim);line-height:1.6;
+    background:var(--panel-2);border-radius:6px;padding:10px 12px;
+    border:1px solid var(--border);
+  }
+  #cache-info code{color:var(--accent);font-family:"SF Mono",Consolas,monospace;font-size:10px;}
+  .hint{font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:10px;}
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:#2a2c30;border-radius:4px;}
+
+  /* ---------- Top bar ---------- */
+  #topbar{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;
+    padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--border);
+    flex-wrap:wrap;row-gap:10px;
+  }
+  #topbar .tb-left{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  #topbar .tb-title{font-size:14px;font-weight:600;letter-spacing:-0.01em;}
+  #topbar .tb-title span{color:var(--text-dim);font-weight:400;font-size:12px;margin-left:8px;}
+  #topbar a.back-link{color:var(--text-dim);text-decoration:none;font-size:12px;border:1px solid var(--border);padding:7px 11px;border-radius:6px;}
+  #topbar a.back-link:hover{color:var(--text);border-color:#3a3c40;}
+  #topbar .tb-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+  .video-toggle{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);}
+  .switch{position:relative;width:38px;height:22px;flex-shrink:0;}
+  .switch input{opacity:0;width:0;height:0;}
+  .switch .track{position:absolute;inset:0;background:var(--panel-2);border:1px solid var(--border);border-radius:999px;transition:background .2s,border-color .2s;cursor:pointer;}
+  .switch .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--text-dim);transition:transform .2s,background .2s;}
+  .switch input:checked + .track{background:var(--accent-dim);border-color:var(--accent-dim);}
+  .switch input:checked + .track .knob{transform:translateX(16px);background:#eafff5;}
+
+  #app{height:calc(100vh - 49px);}
+
+  /* ---------- Floating save-position pill (under a slider) ---------- */
+  .save-pos-wrap{height:0;overflow:visible;position:relative;}
+  .save-pos-pill{
+    display:flex;align-items:center;gap:6px;
+    max-height:0;opacity:0;transform:translateY(-4px);
+    overflow:hidden;transition:max-height .22s ease,opacity .22s ease,transform .22s ease,margin-top .22s ease;
+    margin-top:0;
+  }
+  .save-pos-pill.show{max-height:40px;opacity:1;transform:translateY(0);margin-top:8px;}
+  .save-pos-pill button{
+    font-size:11px;padding:6px 10px;background:var(--accent-dim);border-color:var(--accent-dim);color:#eafff5;
+  }
+  .save-pos-pill button:hover{background:#0f7e60;}
+  .save-pos-pill .label{font-size:10.5px;color:var(--text-dim);}
+
+  /* ---------- Sequence / timeline section ---------- */
+  #sequence-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+  .seq-step{
+    display:flex;align-items:center;gap:10px;
+    background:var(--panel-2);border:1px solid var(--border);border-radius:8px;
+    padding:8px 10px;
+  }
+  .seq-step .seq-thumb{
+    width:40px;height:40px;border-radius:6px;flex-shrink:0;overflow:hidden;
+    background:#46433d;border:1px solid var(--border);
+  }
+  .seq-step .seq-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .seq-step .seq-body{flex:1;min-width:0;}
+  .seq-step .seq-title{font-size:12px;font-weight:600;}
+  .seq-step .seq-meta{font-size:10.5px;color:var(--text-dim);margin-top:2px;}
+  .seq-step .seq-delay{display:flex;align-items:center;gap:5px;flex-shrink:0;}
+  .seq-step .seq-delay input{
+    width:52px;background:var(--panel);border:1px solid var(--border);border-radius:5px;
+    color:var(--text);font-size:11px;padding:4px 5px;text-align:right;
+  }
+  .seq-step .seq-delay span{font-size:10px;color:var(--text-dim);}
+  .seq-step .seq-remove{
+    background:transparent;border:1px solid var(--border);color:var(--text-dim);
+    border-radius:5px;padding:5px 7px;font-size:12px;line-height:1;flex-shrink:0;
+  }
+  .seq-step .seq-remove:hover{color:#e05252;border-color:#e05252;}
+  .seq-empty{font-size:11.5px;color:var(--text-dim);padding:14px 10px;text-align:center;border:1px dashed var(--border);border-radius:8px;}
+  .seq-step .seq-drag{cursor:grab;color:var(--text-dim);font-size:14px;padding:2px 4px;flex-shrink:0;user-select:none;}
+  .seq-step.dragging{opacity:0.4;}
+  .seq-step .seq-name-input{
+    width:100%;background:transparent;border:none;border-bottom:1px dashed transparent;
+    color:var(--text);font-size:12px;font-weight:600;font-family:inherit;padding:0;
+  }
+  .seq-step .seq-name-input:focus{outline:none;border-bottom-color:var(--accent);}
+  .seq-step.group .seq-title-badge{
+    display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.04em;
+    background:var(--accent-dim);color:#eafff5;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle;
+  }
+
+  .transport{display:flex;align-items:center;gap:8px;margin-top:4px;}
+  .transport button{padding:8px 12px;}
+  .transport .scrub{font-size:11px;color:var(--text-dim);margin-left:auto;}
+
+  /* ---------- Preview modal ---------- */
+  #preview-overlay{
+    position:fixed;inset:0;background:rgba(8,9,10,0.72);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:200;padding:24px;
+  }
+  #preview-overlay.open{display:flex;}
+  #preview-modal{
+    width:min(880px,100%);max-height:92vh;overflow-y:auto;
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:22px;
+  }
+  #preview-modal h2{font-size:16px;margin:0 0 4px;}
+  #preview-modal p.sub{font-size:12px;color:var(--text-dim);margin:0 0 18px;}
+  .preview-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  @media (max-width:640px){.preview-grid{grid-template-columns:1fr;}}
+  .preview-card{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:14px;}
+  .preview-card h3{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);margin:0 0 10px;}
+  .preview-img-frame{width:100%;aspect-ratio:4/3;border-radius:8px;overflow:hidden;background:#000;position:relative;}
+  .preview-img-frame img,.preview-img-frame video{width:100%;height:100%;object-fit:cover;display:block;}
+  .preview-card .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .angle-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+  .angle-chip{
+    font-size:10.5px;padding:5px 9px;border-radius:999px;border:1px solid var(--border);
+    background:var(--panel);color:var(--text-dim);cursor:pointer;
+  }
+  .angle-chip.active{background:var(--accent-dim);border-color:var(--accent-dim);color:#eafff5;}
+  .preview-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;flex-wrap:wrap;}
+  .preview-footer button{padding:10px 16px;}
+
+  /* ---------- Loader for video-mode thumbnails elsewhere (custom, no heart) ---------- */
+  .gesture-loader{
+    width:22px;height:22px;border-radius:50%;
+    border:2px solid rgba(93,202,165,0.25);border-top-color:var(--accent);
+    animation:gesture-spin .8s linear infinite;
+  }
+  @keyframes gesture-spin{to{transform:rotate(360deg);}}
+
+  .toast{
+    position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(8px);
+    background:var(--panel-2);border:1px solid var(--border);color:var(--text);
+    font-size:12px;padding:10px 16px;border-radius:8px;opacity:0;pointer-events:none;
+    transition:opacity .25s ease,transform .25s ease;z-index:300;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* ---------- Warning toast: slides in from the left edge ---------- */
+  .warn-toast{
+    position:fixed;top:64px;left:16px;
+    display:flex;align-items:center;gap:8px;
+    background:#3a2420;border:1px solid #7a3a2e;color:#ffd9cf;
+    font-size:12px;padding:10px 14px;border-radius:8px;
+    max-width:340px;line-height:1.4;
+    transform:translateX(-120%);opacity:0;
+    transition:transform .32s cubic-bezier(.2,.8,.2,1),opacity .32s ease;
+    z-index:300;box-shadow:0 6px 18px rgba(0,0,0,0.35);
+    pointer-events:none;
+  }
+  .warn-toast.show{transform:translateX(0);opacity:1;}
+
+  /* ---- Gesture Library picker ---- */
+  .lib-overlay{position:fixed;inset:0;background:rgba(10,10,12,.72);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:400;padding:24px;}
+  .lib-overlay.open{display:flex;}
+  .lib-box{width:min(680px,100%);max-height:86vh;display:flex;flex-direction:column;
+    background:#1a1a1e;border:1px solid #2e2e34;border-radius:14px;overflow:hidden;
+    box-shadow:0 30px 70px -30px rgba(0,0,0,.8);}
+  .lib-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:16px 18px;border-bottom:1px solid #2e2e34;}
+  .lib-bar h3{margin:0;font-size:15px;font-weight:600;color:#f2f2f4;}
+  .lib-close{background:none;border:0;color:#9a9aa2;font-size:15px;cursor:pointer;padding:4px 8px;}
+  .lib-close:hover{color:#f2f2f4;}
+  .lib-note{margin:0;padding:12px 18px 4px;font-size:12px;line-height:1.5;color:#9a9aa2;}
+  .lib-list{overflow:auto;padding:12px 18px 18px;display:flex;flex-direction:column;gap:10px;}
+  .lib-item{display:flex;align-items:center;gap:14px;padding:10px;border:1px solid #2e2e34;
+    border-radius:10px;background:#202026;cursor:pointer;transition:border-color .15s,background .15s;}
+  .lib-item:hover{border-color:#4a9a7a;background:#24242b;}
+  .lib-thumb{width:72px;height:72px;flex:0 0 72px;border-radius:8px;background:#46433d;
+    object-fit:cover;display:block;}
+  .lib-meta{min-width:0;flex:1;}
+  .lib-name{font-size:14px;font-weight:600;color:#f2f2f4;margin-bottom:3px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lib-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9a9aa2;line-height:1.6;}
+  .lib-load{flex:0 0 auto;padding:7px 14px;border-radius:7px;border:0;background:#2f9e6e;
+    color:#fff;font-size:12px;font-weight:600;cursor:pointer;}
+  .lib-empty{padding:26px 4px;text-align:center;color:#9a9aa2;font-size:13px;line-height:1.6;}
+#code{background:var(--panel-2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:12px;width:130px}
+#chip{display:inline-flex;align-items:center;gap:8px;font-size:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:7px 11px;max-width:420px}
+#chip i{width:8px;height:8px;border-radius:50%;background:#8b8d92;flex-shrink:0}
+#chip.ok i{background:var(--accent)}#chip.err i{background:#e0705a}#chip.busy i{background:#e0a02f}
+#chipTxt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+<style>
+  .connection-status{display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-dim)}
+  .connection-dot{width:7px;height:7px;border-radius:50%;background:#8b8d92;display:inline-block;flex-shrink:0}
+  .connection-status.connected{border-color:var(--accent);color:var(--accent)}
+  .connection-status.connected .connection-dot{background:var(--accent)}
+  #topbar a.back-link{transition:.2s}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="tb-left"><a class="back-link" id="zippyBackBtn" href="https://arulv123.github.io/ZIPPY-MAIN-PAGE-1/">Back to Dashboard</a><div class="tb-title">Live arm control<span>command is sent when you let go of a slider</span></div><span class="connection-status disconnected" id="gestureConnectionStatus"><span class="connection-dot"></span><span id="gestureConnectionText">Disconnected</span></span></div>
+  <div class="tb-right">
+    <input type="text" id="code" placeholder="Device code" inputmode="numeric">
+    <button id="resetBtn" class="primary">Send rest position</button>
+    <span id="chip" class="busy"><i></i><span id="chipTxt">Starting…</span></span>
+  </div>
+</div>
+
+<div id="app">
+  <div id="viewport">
+    <div id="canvas-host"></div>
+    <div id="status" class="loading"><div class="dot"></div><span id="status-text">Building hand model…</span></div>
+  </div>
+
+  <div id="panel">
+    <div id="panel-header">
+      <h1>Create a gesture</h1>
+      <p>Move any joint below, then tap <strong>Save position</strong> to lock that pose in as the next step of the motion. Build up as many steps as you like, set the delay between each, then preview and publish.</p>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Fingers</p>
+      <div class="finger-row">
+        <div class="finger-label"><span>Thumb</span><span id="out-thumb">0°</span></div>
+        <input type="range" id="thumb" min="0" max="90" value="0" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="thumb"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+      <div class="finger-row">
+        <div class="finger-label"><span>Index</span><span id="out-index">0°</span></div>
+        <input type="range" id="index" min="0" max="100" value="0" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="index"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+      <div class="finger-row">
+        <div class="finger-label"><span>Middle</span><span id="out-middle">0°</span></div>
+        <input type="range" id="middle" min="0" max="100" value="0" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="middle"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+      <div class="finger-row">
+        <div class="finger-label"><span>Ring</span><span id="out-ring">0°</span></div>
+        <input type="range" id="ring" min="0" max="100" value="0" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="ring"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+      <div class="finger-row">
+        <div class="finger-label"><span>Pinky</span><span id="out-pinky">0°</span></div>
+        <input type="range" id="pinky" min="0" max="100" value="0" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="pinky"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Wrist</p>
+      <div class="finger-row">
+        <div class="finger-label"><span>Rotation</span><span id="out-wrist">70°</span></div>
+        <input type="range" id="wrist-slider" min="0" max="180" value="90" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="wrist-slider"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Arm</p>
+      <div class="finger-row">
+        <div class="finger-label"><span>Elbow joint</span><span id="out-arm">0°</span></div>
+        <input type="range" id="arm-slider" min="68" max="110" value="68" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="arm-slider"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Shoulder</p>
+      <div class="finger-row">
+        <div class="finger-label"><span>Rotation 1</span><span id="out-shoulder">0°</span></div>
+        <input type="range" id="shoulder-slider" min="65" max="98" value="98" step="1" style="direction:rtl">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="shoulder-slider"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+      <div class="finger-row">
+        <div class="finger-label"><span>Rotation 2 (lift)</span><span id="out-abduction">0°</span></div>
+        <input type="range" id="abduction-slider" min="26" max="70" value="26" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="abduction-slider"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+      <div class="finger-row">
+        <div class="finger-label"><span>Extend joint</span><span id="out-extend">0°</span></div>
+        <input type="range" id="extend-slider" min="0" max="14" value="0" step="1">
+        <div class="save-pos-wrap"><div class="save-pos-pill" data-for="extend-slider"><button class="save-pos-btn">Save position</button><span class="label">as next step</span></div></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p class="section-title">Camera</p>
+      <div class="btn-row">
+        <button id="autofocus-toggle" class="primary">Follow camera: On</button>
+      </div>
+      <div class="hint">When on, the camera follows the motion — it stays square-on to the palm as the wrist turns, and tightens on whichever joints just moved. Drag or scroll the viewport to take manual control — it turns back on automatically the next time you use a slider, or tap the button to disable it entirely.</div>
+
+      <div class="finger-row" style="margin-top:14px">
+        <div class="finger-label"><span>Arm shot zoom</span><span id="out-arm-zoom">100%</span></div>
+        <input type="range" id="arm-zoom-slider" min="50" max="200" value="100" step="5">
+        <div class="hint" style="margin-top:6px">Zooms the arm/elbow and full-arm camera views in or out. Doesn't affect the finger close-up.</div>
+      </div>
+    </div>
+
+    <div class="section" style="display:none">
+      <p class="section-title">Presets</p>
+      <div class="btn-row">
+        <button id="preset-open">Open</button>
+        <button id="preset-fist">Fist</button>
+        <button id="preset-point">Point</button>
+        <button id="preset-peace">Peace</button>
+        <button id="preset-thumbsup" class="primary">Thumbs up</button>
+      </div>
+    </div>
+
+    <div class="section" style="display:none">
+      <p class="section-title">Device cache</p>
+      <div id="cache-info">Checking <code>IndexedDB</code> for a cached model…</div>
+      <div class="hint">This build generates the mesh procedurally, so there's nothing to download. If you swap in a real .glb file later, use the <code>loadHandModel()</code> function below — it already caches the file in IndexedDB on first load and reads from disk on every visit after that.</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="warn-toast" id="warn-toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* Sliders SHOW the real motor values. Internally the 3D arm still runs on its own rig angles; this converts rig -> motor for display. */
+window.motorOf=function(id,v){
+  var T={thumb:[0,90,0,180],index:[0,100,0,180],middle:[0,100,0,180],ring:[0,100,0,180],pinky:[0,100,0,180],
+    'wrist-slider':[0,180,0,130,90,70],'arm-slider':[68,110,0,360],'shoulder-slider':[98,65,0,360],'abduction-slider':[26,70,0,360],'extend-slider':[0,14,0,360]}[id];
+  if(!T||v==null||isNaN(v))return v;
+  var u0=T[0],u1=T[1],s0=T[2],s1=T[3];
+  if(T.length>4){var nu=T[4],ns=T[5];return v<=nu?ns+(s0-ns)*((nu-v)/(nu-u0)):ns+(s1-ns)*((v-nu)/(u1-nu))}
+  return s0+(s1-s0)*((v-u0)/(u1-u0));
+};
+</script>
+<script>
+(function(){
+  var statusEl = document.getElementById('status');
+  var statusText = document.getElementById('status-text');
+  var cacheInfo = document.getElementById('cache-info');
+
+  function setStatus(text, loading){
+    statusText.textContent = text;
+    statusEl.classList.toggle('loading', !!loading);
+  }
+
+  // ---------- IndexedDB caching layer (ready for a real .glb swap-in) ----------
+  var DB_NAME = 'hand-model-cache';
+  var STORE = 'models';
+
+  function openDB(){
+    return new Promise(function(resolve, reject){
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function(){
+        req.result.createObjectStore(STORE);
+      };
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  }
+
+  function getCached(key){
+    return openDB().then(function(db){
+      return new Promise(function(resolve, reject){
+        var tx = db.transaction(STORE, 'readonly');
+        var req = tx.objectStore(STORE).get(key);
+        req.onsuccess = function(){ resolve(req.result || null); };
+        req.onerror = function(){ reject(req.error); };
+      });
+    });
+  }
+
+  function setCached(key, arrayBuffer){
+    return openDB().then(function(db){
+      return new Promise(function(resolve, reject){
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(arrayBuffer, key);
+        tx.oncomplete = function(){ resolve(true); };
+        tx.onerror = function(){ reject(tx.error); };
+      });
+    });
+  }
+
+  // Drop-in loader for when you point this at a real .glb URL.
+  // First call: fetches from network, caches bytes in IndexedDB.
+  // Every call after: reads straight from disk, no network hit.
+  window.loadHandModel = function(url, onModel){
+    getCached(url).then(function(cachedBuffer){
+      if (cachedBuffer){
+        cacheInfo.textContent = 'Loaded from device cache (IndexedDB). No network request made.';
+        parseGLB(cachedBuffer, onModel);
+        return;
+      }
+      cacheInfo.textContent = 'Fetching model from network…';
+      fetch(url).then(function(res){ return res.arrayBuffer(); }).then(function(buf){
+        setCached(url, buf).then(function(){
+          cacheInfo.textContent = 'Model downloaded and cached to this device.';
+        });
+        parseGLB(buf, onModel);
+      });
+    });
+  };
+
+  function parseGLB(buffer, onModel){
+    // Requires THREE.GLTFLoader (not loaded in this demo since the hand
+    // below is procedural). Included so the swap-in path works untouched.
+    if (typeof THREE.GLTFLoader === 'undefined'){
+      console.warn('GLTFLoader not loaded — add the CDN script tag to use loadHandModel().');
+      return;
+    }
+    var loader = new THREE.GLTFLoader();
+    loader.parse(buffer, '', function(gltf){ onModel(gltf.scene); });
+  }
+
+  // ---------- Three.js scene ----------
+  var host = document.getElementById('canvas-host');
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x46433d); // warm charcoal — dark enough to contrast the off-white page background and make the white arm pop, but stopped short of pure black
+
+  var camera = new THREE.PerspectiveCamera(40, host.clientWidth/host.clientHeight, 0.1, 100);
+  camera.position.set(0, 1.2, 5.5);
+  camera.lookAt(0, 0.5, 0);
+
+  var renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(host.clientWidth, host.clientHeight);
+  renderer.shadowMap.enabled = true;
+  host.appendChild(renderer.domElement);
+
+  var key = new THREE.DirectionalLight(0xffffff, 1.3);
+  key.position.set(3, 5, 4);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024,1024);
+  scene.add(key);
+  var fill = new THREE.DirectionalLight(0x88aaff, 0.4);
+  fill.position.set(-4, 2, -2);
+  scene.add(fill);
+  scene.add(new THREE.AmbientLight(0x404040, 0.75));
+  // Extra soft light aimed at the arm (bicep/forearm) so the white plastic
+  // reads clearly instead of going dark/looking transparent — kept subtle.
+  var armLight = new THREE.DirectionalLight(0xffffff, 0.5);
+  armLight.position.set(-2, -3, 5);
+  scene.add(armLight);
+
+  var ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(20,20),
+    new THREE.MeshStandardMaterial({ color:0x46433d, roughness:1 }) // matches the new warm charcoal scene background
+  );
+  ground.rotation.x = -Math.PI/2;
+  ground.position.y = -7.2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // ---------- Camera rig ----------
+  // Two modes, both user-toggleable via the Auto-focus button:
+  //   AUTO  — camera orbits to a position computed from the palm's current
+  //           world orientation so it is always looking squarely at the
+  //           palm face, at a distance that frames the fingers. Rotating
+  //           the wrist slider turns the palm, so the target camera
+  //           position turns with it (it "follows" the wrist). Moving a
+  //           finger slider keeps the camera locked to whatever palm-facing
+  //           position it's already at (no re-orbit), it just re-tightens
+  //           the framing distance/height so the fingers stay in frame.
+  //   MANUAL — plain orbit/drag/zoom, auto-focus suspended. Also entered
+  //           automatically the moment the user drags or scrolls, and can
+  //           be re-enabled from the button at any time.
+  var isDragging = false, prevX=0, prevY=0;
+  var camTheta=0.35, camPhi=1.15, camDist=5.5;               // manual-mode orbit state
+  var focusY = 0.3, targetFocusY = 0.3;
+  var focusDistOffset = 0, targetFocusDistOffset = 0;         // added on top of camDist
+  var autoFocusActive = true;
+  var autoFocusMode = 'hand'; // 'hand' (fixed-target lerp: fingers/elbow/shoulder/abduction/full-arm) | 'wrist' (live palm-tracking orbit) | 'manual-orbit' (user drag/scroll)
+  var camPos = new THREE.Vector3(0, 1.2, 5.5);                // smoothed camera position (auto mode)
+  var camLookAt = new THREE.Vector3(0, 0.3, 0);               // smoothed look-at (auto mode)
+
+  // ---------- Arm/full-arm shot zoom ----------
+  // User-controlled multiplier applied to the distance of the arm-focused
+  // views (elbow close-up, shoulder, abduction, wrist palm-track, and the
+  // fixed full-arm wide shot) so those shots can be zoomed in or out
+  // without affecting the finger close-up, which stays auto-fit to frame.
+  var armZoomPercent = 100;
+  function getArmZoomScale(){ return armZoomPercent / 100; }
+  var lastArmFocusFn = null; // whichever arm-family focus*() ran most recently, so the zoom slider can re-apply it live
+  function setArmZoomPercent(pct){
+    armZoomPercent = Math.max(50, Math.min(200, pct));
+    if (lastArmFocusFn) lastArmFocusFn();
+  }
+
+  function updateCam(){
+    if (autoFocusMode === 'manual-orbit' || !palmAnchor){
+      // Manual orbit framing: orbit around a fixed Y focus point (entered
+      // via drag/scroll on the viewport).
+      var dist = camDist + focusDistOffset;
+      var px = dist * Math.sin(camPhi) * Math.sin(camTheta);
+      var pz = dist * Math.sin(camPhi) * Math.cos(camTheta);
+      var py = dist * Math.cos(camPhi) + focusY;
+      camPos.set(px, py, pz);
+      camLookAt.set(0, focusY, 0);
+      camera.position.copy(camPos);
+      camera.lookAt(camLookAt);
+      return;
+    }
+
+    if (autoFocusMode === 'wrist'){
+      // Palm-tracking mode: re-derive the orbit position from the palm's
+      // LIVE world orientation every frame, so the camera continuously
+      // swings to stay square-on to the palm as the wrist rotates —
+      // genuine following, not a static vantage point.
+      updateWristTrack();
+    }
+
+    // Fixed-target modes (fingers/elbow/shoulder/abduction/full-arm): the
+    // camera POSITION is only ever set once per gesture, by focusFingers/
+    // focusArm/focusShoulder/focusAbduction/frameFixedWide — this just
+    // smoothly glides toward whatever that last-set target was.
+    camPos.lerp(handTargetPos, 0.045);
+    camLookAt.lerp(handTargetLookAt, 0.045);
+    camera.up.set(0, 1, 0); // always world-up; lerping this caused unstable/glitchy view matrices mid-transition
+    camera.position.copy(camPos);
+    camera.lookAt(camLookAt);
+  }
+  updateCam();
+
+  // The camera's resting spot in hand mode — recomputed only inside
+  // focusFingers()/focusWrist()/focusShoulder(), never read from live palm
+  // orientation in the render loop.
+  var handTargetPos = new THREE.Vector3(0, 1.2, 5.5);
+  var handTargetLookAt = new THREE.Vector3(0, 0.3, 0);
+  var handTargetUp = new THREE.Vector3(0, 1, 0);
+
+  // ---------- Fingers: one fixed camera position, computed once ----------
+  // Previously this recomputed the hand's bounding box (and therefore the
+  // camera position) on every single finger-slider input, which made the
+  // camera visibly drift as fingers curled. Now it's computed ONCE up
+  // front from the hand's neutral/open pose, cached, and every subsequent
+  // finger move just re-asserts that same fixed target — the camera holds
+  // perfectly still while you curl fingers.
+  var handBox = new THREE.Box3();
+  var handBoxCenter = new THREE.Vector3();
+  var handBoxSize = new THREE.Vector3();
+  var FILL_FRACTION = 0.72; // hand's bounding sphere occupies ~72% of the shorter screen axis — leaves margin so fingers aren't clipped at frame edges as they curl/splay to their extremes
+  var FINGER_VIEW_POS = null;   // computed once, cached
+  var FINGER_VIEW_LOOKAT = null;
+  var fingerViewStale = true; // set true whenever the arm/elbow/shoulder/wrist moves the hand elsewhere in the world, forcing focusFingers to recompute next time instead of reusing a stale cached target
+
+  // NOTE: this used to be measured once from handGroup's rest-pose bounding
+  // box and cached forever. That meant that once the shoulder/abduction
+  // sliders moved the whole arm somewhere else in world space, the finger
+  // view kept pointing at the OLD stale location (near the original
+  // shoulder/rest spot) instead of wherever the hand actually is now. It's
+  // now recomputed from the LIVE world matrices every time, using
+  // handBoxCenter (world-space) as the reference, so it always finds the
+  // hand no matter how the shoulder/elbow have repositioned it.
+  function computeFingerView(){
+    scene.updateMatrixWorld(true);
+    handBox.setFromObject(handGroup);
+    handBox.getCenter(handBoxCenter);
+    handBox.getSize(handBoxSize);
+
+    var radius = handBoxSize.length() * 0.5;
+    var vFov = camera.fov * Math.PI / 180;
+    var aspect = camera.aspect || (host.clientWidth / host.clientHeight);
+    // Use whichever axis (vertical or horizontal) is tighter, so a wide
+    // splayed hand doesn't get clipped left/right on a narrow viewport.
+    var hFov = 2 * Math.atan(Math.tan(vFov/2) * aspect);
+    var limitingFov = Math.min(vFov, hFov);
+    var dist = (radius / FILL_FRACTION) / Math.sin(limitingFov/2);
+    dist = Math.max(dist, 1.5); // safety floor so it can never slam in too close
+
+    // Live palm-facing direction: previously this was a hard-coded world
+    // direction (0,0.18,-1), which only happened to face the palm at the
+    // hand's rest orientation — once the wrist slider twists the hand,
+    // the palm turns to face a different way but the camera kept sitting
+    // in that same old spot, so it stopped actually looking at the palm.
+    // Read palmAnchor's LIVE world-space normal instead (same technique
+    // as the wrist view), so the finger camera faces the palm correctly
+    // no matter how the wrist has been rotated.
+    // NOTE: local +Z (not -Z) is the palm-facing axis — wristGroup's 180°
+    // flip about X maps local +Z to world -Z at rest, which is the side
+    // the palm actually faces (see the palm-facing note elsewhere). Using
+    // -Z here was pointing at the BACK of the hand instead.
+    var palmNormal = new THREE.Vector3(0, 0, 1);
+    palmNormal.transformDirection(palmAnchor.matrixWorld).normalize();
+    var dir = palmNormal.clone().add(new THREE.Vector3(0, 0.18, 0)).normalize();
+    FINGER_VIEW_POS = handBoxCenter.clone().addScaledVector(dir, dist);
+    FINGER_VIEW_LOOKAT = handBoxCenter.clone();
+  }
+
+  function focusFingers(forceRecompute){
+    isDragging = false; // guarantee a stuck manual-drag state can't block this
+    autoFocusMode = 'hand';
+    // Recompute whenever explicitly forced, when there's no cache yet, OR
+    // when the hand has moved elsewhere in the world since the last
+    // computation (fingerViewStale, set by the wrist/shoulder/abduction/
+    // extend/elbow slider handlers) — without this, moving the elbow (or
+    // any other arm joint) and then touching a finger slider would reuse
+    // the OLD cached camera target pointing at wherever the hand used to
+    // be, instead of following it to its new position. Plain finger-curl
+    // input, with nothing else having moved, still just reuses the cache
+    // so the camera holds still while curling.
+    if (forceRecompute || !FINGER_VIEW_POS || fingerViewStale){
+      computeFingerView();
+      fingerViewStale = false;
+    }
+    handTargetPos.copy(FINGER_VIEW_POS);
+    handTargetLookAt.copy(FINGER_VIEW_LOOKAT);
+    handTargetUp.set(0, 1, 0);
+    if (autoFocusEnabled) autoFocusActive = true;
+  }
+
+  // ---------- Wrist: camera orbits to stay palm-facing as the wrist turns ----------
+  // Previously this was a single static offset from the palm's position —
+  // so once set, the camera held still while the palm rotated underneath
+  // it, meaning at some rotation angles you'd end up looking at the back
+  // of the hand instead of the palm. Now the camera position is re-derived
+  // every frame from the palm's LIVE world orientation (palmAnchor's local
+  // +Z axis, transformed to world space), so it continuously orbits to
+  // stay square-on to whatever way the palm is currently facing — genuine
+  // palm-tracking instead of a fixed vantage point.
+  var WRIST_VIEW_DIST = 6.4;
+  var WRIST_VIEW_HEIGHT_OFFSET = 0.55; // camera sits slightly above palm height for a flattering angle
+  var WRIST_VIEW_POS = null;    // computed once per wrist-editing session, cached
+  var WRIST_VIEW_LOOKAT = null;
+  // True whenever the camera should re-derive the wrist shot next time
+  // it's used: on first entry, or after some OTHER joint (shoulder/elbow/
+  // abduction/extend) has relocated the whole arm elsewhere. Turning the
+  // wrist slider itself must NOT set this — that's exactly the "camera
+  // keeps swinging so I can't see which way I'm rotating" problem: once
+  // the palm-facing shot is framed, it holds still through the whole
+  // wrist rotation so the motion actually reads on screen.
+  var wristViewStale = true;
+  function focusWrist(forceRecompute){
+    isDragging = false;
+    autoFocusMode = 'hand'; // fixed-target mode: computed once here, then just glided to — never re-read from live palm orientation per frame
+    lastArmFocusFn = focusWrist;
+    if (forceRecompute || !WRIST_VIEW_POS || wristViewStale){
+      updateWristTrack();
+      WRIST_VIEW_POS = handTargetPos.clone();
+      WRIST_VIEW_LOOKAT = handTargetLookAt.clone();
+      wristViewStale = false;
+    } else {
+      handTargetPos.copy(WRIST_VIEW_POS);
+      handTargetLookAt.copy(WRIST_VIEW_LOOKAT);
+    }
+    if (autoFocusEnabled) autoFocusActive = true;
+  }
+  function updateWristTrack(){
+    scene.updateMatrixWorld(true);
+    var palmWorld = new THREE.Vector3();
+    palmAnchor.getWorldPosition(palmWorld);
+    // palmAnchor's local +Z was established (see palm-facing note above) to
+    // point OUT of the palm face in world -Z at rest; read its live world
+    // direction so the camera keeps orbiting to stay in front of the palm
+    // as the wrist slider turns it. (Was incorrectly reading local -Z,
+    // which pointed at the back of the hand instead of the palm.)
+    var palmNormal = new THREE.Vector3(0, 0, 1);
+    palmNormal.transformDirection(palmAnchor.matrixWorld).normalize();
+    var camZoom = getArmZoomScale();
+    var pos = palmWorld.clone().addScaledVector(palmNormal, WRIST_VIEW_DIST * camZoom);
+    pos.y += WRIST_VIEW_HEIGHT_OFFSET;
+    handTargetPos.copy(pos);
+    handTargetLookAt.copy(palmWorld);
+    handTargetUp.set(0, 1, 0);
+  }
+
+  // ---------- Shoulder Rotation 1 (Y-axis spin): view from BEHIND the arm ----------
+  // Chosen once, pulled back far enough to see the shoulder cap AND the
+  // whole arm swinging below it, viewed from behind rather than in front,
+  // so rotating "Rotation 1" reads as the entire arm turning away from you
+  // in front of a stationary camera.
+  // Stored as an offset from the shoulder joint's own live world position
+  // (shoulderAnchor), not an absolute coordinate — shoulderAnchor doesn't
+  // move when Rotation 1 spins it (that rotation happens at shoulderPivot,
+  // which shoulderAnchor sits ON, so its world position stays put through
+  // that spin), but it DOES move if abduction lifts the arm, so re-reading
+  // it live here keeps this view correct in both cases.
+  var SHOULDER_VIEW_POS_OFFSET = new THREE.Vector3(0.6, 0.4, 8.5); // +Z = behind the arm (front is -Z, see palm-facing note above)
+  var SHOULDER_VIEW_LOOKAT_OFFSET = new THREE.Vector3(0, 0, 0);
+  function focusShoulder(){
+    isDragging = false;
+    autoFocusMode = 'hand';
+    lastArmFocusFn = focusShoulder;
+    scene.updateMatrixWorld(true);
+    var shoulderWorld = new THREE.Vector3();
+    shoulderAnchor.getWorldPosition(shoulderWorld);
+    var zoom = getArmZoomScale();
+    handTargetPos.copy(shoulderWorld).add(SHOULDER_VIEW_POS_OFFSET.clone().multiplyScalar(zoom));
+    handTargetLookAt.copy(shoulderWorld).add(SHOULDER_VIEW_LOOKAT_OFFSET);
+    handTargetUp.set(0, 1, 0);
+    if (autoFocusEnabled) autoFocusActive = true;
+  }
+
+  // ---------- Shoulder Rotation 2 (abduction/lift): zoomed-out angled view ----------
+  // Pulled back further than before so the whole shoulder assembly (cap +
+  // cylinder + top of the bicep) stays comfortably in frame as it lifts,
+  // rather than a tight close-up.
+  // Anchored to abductionPivot's own live world position (which does not
+  // move under its own rotation, since abductionPivot IS the pivot — but
+  // re-reading it live costs nothing and keeps this consistent with the
+  // other views if the rig is ever restructured).
+  var ABDUCTION_VIEW_POS_OFFSET = new THREE.Vector3(-5.0, 0.5, 3.0);
+  var ABDUCTION_VIEW_LOOKAT_OFFSET = new THREE.Vector3(0.3, -0.3, 0);
+  function focusAbduction(){
+    isDragging = false;
+    autoFocusMode = 'hand';
+    lastArmFocusFn = focusAbduction;
+    scene.updateMatrixWorld(true);
+    var pivotWorld = new THREE.Vector3();
+    abductionPivot.getWorldPosition(pivotWorld);
+    var zoom = getArmZoomScale();
+    handTargetPos.copy(pivotWorld).add(ABDUCTION_VIEW_POS_OFFSET.clone().multiplyScalar(zoom));
+    handTargetLookAt.copy(pivotWorld).add(ABDUCTION_VIEW_LOOKAT_OFFSET);
+    handTargetUp.set(0, 1, 0);
+    if (autoFocusEnabled) autoFocusActive = true;
+  }
+
+  function focusArm(){
+    isDragging = false;
+    autoFocusMode = 'hand'; // use the same fixed-target lerp system as wrist/shoulder/abduction
+    lastArmFocusFn = focusArm;
+    scene.updateMatrixWorld(true);
+    var elbowWorld = new THREE.Vector3();
+    elbowPivot.getWorldPosition(elbowWorld);
+    var zoom = getArmZoomScale();
+    handTargetPos.copy(elbowWorld).add(ARM_VIEW_POS_OFFSET.clone().multiplyScalar(zoom));
+    handTargetLookAt.copy(elbowWorld).add(ARM_VIEW_LOOKAT_OFFSET);
+    handTargetUp.set(0, 1, 0);
+    if (autoFocusEnabled) autoFocusActive = true;
+  }
+
+  // ---------- Auto-focus enable/disable ----------
+  var autoFocusEnabled = true; // user-controlled master switch (button)
+  function setAutoFocusEnabled(on){
+    autoFocusEnabled = on;
+    autoFocusActive = on;
+    var btn = document.getElementById('autofocus-toggle');
+    if (btn){
+      btn.textContent = on ? 'Follow camera: On' : 'Follow camera: Off';
+      btn.classList.toggle('primary', on);
+    }
+  }
+
+  renderer.domElement.addEventListener('pointerdown', function(e){
+    isDragging=true; prevX=e.clientX; prevY=e.clientY;
+    autoFocusActive=false; // manual drag always suspends auto-focus for this gesture
+
+    // Seed the manual-orbit spherical parameters from the camera's CURRENT
+    // actual position/look-at (whatever hand/wrist/shoulder/abduction view
+    // it was just showing), instead of leaving the old elbow-focused
+    // camTheta/camPhi/focusY values in place. Without this, starting a
+    // drag while looking at e.g. the shoulder would snap the view back to
+    // the old elbow-framing spot the moment autoFocusMode flips to 'arm' —
+    // this is the "camera gets refocused to the hands/arm" bug.
+    var lookAt = camLookAt.clone();
+    var offset = camera.position.clone().sub(lookAt);
+    var r = offset.length();
+    if (r > 0.001){
+      camDist = r;
+      focusDistOffset = 0;
+      focusY = lookAt.y;
+      targetFocusY = lookAt.y;
+      targetFocusDistOffset = 0;
+      camPhi = Math.acos(Math.max(-1, Math.min(1, offset.y / r)));
+      camTheta = Math.atan2(offset.x, offset.z);
+    }
+  });
+  window.addEventListener('pointerup', function(){ isDragging=false; });
+  window.addEventListener('pointermove', function(e){
+    if(!isDragging) return;
+    var dx = e.clientX - prevX, dy = e.clientY - prevY;
+    camTheta -= dx * 0.008;
+    camPhi = Math.max(0.5, Math.min(2.4, camPhi - dy * 0.008));
+    prevX = e.clientX; prevY = e.clientY;
+    autoFocusMode = 'manual-orbit'; // manual orbit uses the simple spherical rig
+    camera.up.set(0,1,0);
+    updateCam();
+  });
+  renderer.domElement.addEventListener('wheel', function(e){
+    e.preventDefault();
+    camDist = Math.max(3, Math.min(10, camDist + e.deltaY*0.003));
+    autoFocusActive = false;
+    if (autoFocusMode === 'manual-orbit') updateCam();
+  }, { passive:false });
+
+  // ---------- Build a jointed, mechanical prosthetic-style hand ----------
+  var shellColor = 0xf2ede2; // off-white 3D-printed plastic shell
+  var skinMat = new THREE.MeshStandardMaterial({ color: shellColor, roughness:0.55, metalness:0.05 });
+  var padMat = new THREE.MeshStandardMaterial({ color: 0xe0532c, roughness:0.75, metalness:0.0 }); // orange grip pads
+  var jointMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1e, roughness:0.4, metalness:0.3 }); // black actuator housings
+  var wireMat = new THREE.MeshStandardMaterial({ color: 0xd9502a, roughness:0.5, metalness:0.1 }); // orange tendon wires
+  var slotMat = new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness:0.6, metalness:0.1 }); // dark gap/slot lines
+
+  var wristGroup = new THREE.Group();
+  // NOTE: wristGroup is parented under the forearm's rotation pivot further
+  // down (not the scene) so that bending the elbow actually carries the
+  // forearm + wrist + hand with it, instead of leaving them fixed.
+
+  var handGroup = new THREE.Group();
+  wristGroup.add(handGroup);
+  var palmAnchor; // set inside the palm IIFE below; used by the camera rig
+
+  function makeSegment(radiusTop, radiusBottom, length, mat){
+    var geo = new THREE.CapsuleGeometry ? new THREE.CapsuleGeometry(radiusTop, length, 4, 8) : new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 10);
+    var mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // A small diamond-textured grip pad (flat box, slightly inset) like the
+  // orange rubberized pads on the reference photo.
+  function makeGripPad(w, h, thickness){
+    thickness = thickness || 0.05;
+    var geo = new THREE.BoxGeometry(w, thickness, h);
+    var mesh = new THREE.Mesh(geo, padMat);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // A black cylindrical actuator/pivot housing with a couple of thin
+  // orange "tendon wire" strands running along it, matching the exposed
+  // mechanism visible at each knuckle in the reference photo.
+  function makeActuator(radius, length){
+    var group = new THREE.Group();
+    var housing = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 12), jointMat);
+    housing.rotation.z = Math.PI/2;
+    housing.castShadow = true;
+    group.add(housing);
+    for (var i=0;i<2;i++){
+      var wire = new THREE.Mesh(new THREE.CylinderGeometry(radius*0.09, radius*0.09, length*0.92, 6), wireMat);
+      wire.rotation.z = Math.PI/2;
+      wire.position.set(0, (i===0?1:-1)*radius*0.55, radius*0.55);
+      group.add(wire);
+    }
+    return group;
+  }
+
+  // Palm — faceted mechanical/prosthetic shell (angular plates, not an
+  // organic mound), with orange rubberized grip pads and exposed black
+  // actuator housings + wire tendons at the base of each finger, matching
+  // a 3D-printed prosthetic hand reference.
+  (function buildMechanicalPalm(){
+    // Flat faceted silhouette — straight bevelled edges instead of smooth
+    // curves, so the plate reads as machined/printed rather than organic.
+    var palmShape = new THREE.Shape();
+    palmShape.moveTo(-0.60, -0.95);
+    palmShape.lineTo(-0.80, -0.55);
+    palmShape.lineTo(-0.80, 0.15);
+    palmShape.lineTo(-0.68, 0.78);
+    palmShape.lineTo(-0.48, 1.06);
+    palmShape.lineTo(-0.15, 1.12);
+    palmShape.lineTo(0.15, 1.12);
+    palmShape.lineTo(0.48, 0.98);
+    palmShape.lineTo(0.70, 0.78);
+    palmShape.lineTo(0.75, 0.05);
+    palmShape.lineTo(0.72, -0.55);
+    palmShape.lineTo(0.50, -0.95);
+    palmShape.lineTo(0.22, -1.12);
+    palmShape.lineTo(-0.22, -1.12);
+    palmShape.lineTo(-0.60, -0.95);
+
+    var palmGeo = new THREE.ExtrudeGeometry(palmShape, {
+      depth: 0.5,
+      bevelEnabled: true,
+      bevelThickness: 0.05,
+      bevelSize: 0.04,
+      bevelSegments: 2,
+      curveSegments: 1 // straight facets, no smoothing
+    });
+    palmGeo.translate(0, 0, -0.25);
+    var palm = new THREE.Mesh(palmGeo, skinMat);
+    palm.castShadow = true; palm.receiveShadow = true;
+    handGroup.add(palm);
+
+    // Invisible anchor marking the palm's center + facing direction (local
+    // +Z), used purely as a camera-tracking reference so auto-focus can
+    // always park the camera square-on to the palm regardless of wrist
+    // rotation or elbow bend.
+    palmAnchor = new THREE.Object3D();
+    palmAnchor.position.set(0, 0.05, 0.1);
+    handGroup.add(palmAnchor);
+
+    // Panel seam lines: thin darker inset boxes tracing plate divisions,
+    // like the printed-part seams visible on the reference hand.
+    function seam(x, y, w, h, rotZ){
+      var seamGeo = new THREE.BoxGeometry(w, h, 0.02);
+      var seamMesh = new THREE.Mesh(seamGeo, slotMat);
+      seamMesh.position.set(x, y, 0.24);
+      if (rotZ) seamMesh.rotation.z = rotZ;
+      handGroup.add(seamMesh);
+    }
+    seam(-0.15, 0.05, 0.75, 0.03, 0.35);
+    seam(0.25, -0.35, 0.55, 0.03, -0.5);
+    seam(-0.55, -0.3, 0.03, 0.6, 0);
+
+    // (Grip pads removed per feedback — plain plastic shell only.)
+  })();
+
+  // wrist — black cuff/socket like the prosthetic's forearm interface.
+  // Lives on wristGroup (fixed), not handGroup, because it represents the
+  // static socket housing that the hand rotates INSIDE of — like a real
+  // wrist turning within a fixed cuff, not the cuff itself spinning. Its
+  // faceted low-poly cylinder was catching a flat-looking specular highlight
+  // that visibly swung around when it was wrongly parented to the
+  // rotating handGroup; keeping it on the fixed wristGroup stops that.
+  var cuffGeo = new THREE.CylinderGeometry(0.56, 0.6, 0.55, 16);
+  var cuff = new THREE.Mesh(cuffGeo, jointMat);
+  cuff.position.set(0, -1.75, 0);
+  cuff.castShadow = true;
+  wristGroup.add(cuff);
+
+  // collar — a thin plastic ring right where the hand meets the cuff.
+  // This one DOES belong on handGroup: it's the hand-side lip of the
+  // joint, so it should turn together with the hand as it rotates, right
+  // up against the fixed cuff below it. Shortened and repositioned so it
+  // sits flush ABOVE the cuff with no vertical overlap (previously the two
+  // low-poly cylinders interpenetrated between y=-1.6 and y=-1.475, and
+  // since one rotates while the other stays fixed, that overlapping
+  // faceted geometry visibly slid/rotated in place instead of looking
+  // like a flat, static seam).
+  var collarGeo = new THREE.CylinderGeometry(0.5, 0.56, 0.3, 16);
+  var collar = new THREE.Mesh(collarGeo, skinMat);
+  collar.position.set(0, -1.475 + 0.15, 0); // bottom face sits exactly at the cuff's top face (y=-1.475), no gap or overlap
+  collar.castShadow = true;
+  handGroup.add(collar);
+
+  // ---------- Arm rig ----------
+  // Anatomy fix: the bicep (upper arm) attaches to the shoulder and stays
+  // straight. The elbow bends the FOREARM (which carries the wrist+hand
+  // with it), not the bicep. Structure, top to bottom:
+  //   shoulderAnchor (fixed, future shoulder attaches here)
+  //     -> bicep mesh (straight, never rotates)
+  //     -> elbowPivot
+  //          -> elbow ball
+  //          -> forearmPivot   (THIS is what the elbow slider rotates)
+  //               -> forearm mesh
+  //               -> wristGroup (cuff/collar) -> handGroup (hand+fingers)
+  // The whole rig is then flipped 180° so the bicep/shoulder end is on top
+  // and the hand hangs naturally below it, ready for a shoulder to attach
+  // above.
+  var forearmMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness:0.45, metalness:0.06 });
+  var forearmJointMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1e, roughness:0.4, metalness:0.3 });
+
+  // armAssembly is a plain positioning offset (no rotation) so the whole
+  // rig sits nicely in the default camera framing. The "upside down, hand
+  // hanging below the shoulder" orientation comes from how the chain below
+  // is actually built (shoulder at the top, decreasing Y all the way to
+  // the fingertips) plus a 180° flip on wristGroup — not from rotating
+  // this outer group, which is what caused the hand to fold back into the
+  // forearm and interpenetrate it last time.
+  var armAssembly = new THREE.Group();
+  armAssembly.position.set(0, 6.8, 0);
+  // Mirror the ENTIRE rig (shoulder cap/quadrant, bicep, elbow, forearm,
+  // wrist, hand, all fingers) across X so this reads as a RIGHT arm/hand
+  // instead of a left one. Three.js correctly flips backface culling for
+  // negative-determinant matrices, so materials/shadows still render fine.
+  //
+  // IMPORTANT — why this does NOT uniformly flip every joint's rotation
+  // direction: a limb hangs at rest along local -Y. For a rotation about
+  // axis A, the instantaneous world-space motion direction is A × v (v =
+  // the limb's current direction). Mirroring negates only the X component
+  // of that result:
+  //   - Abduction rotates about Z: A×v = Z×(0,-1,0) = (1,0,0) — mirroring
+  //     negates this entirely, so the visual direction DOES flip.
+  //   - Elbow rotates about X: A×v = X×(0,-1,0) = (0,0,-1) — the X
+  //     component is already 0, so mirroring changes NOTHING here; the
+  //     visual direction does NOT flip.
+  // So only the abduction slider needed its sign negated to compensate —
+  // the elbow slider needed no compensation at all. (Verified by working
+  // through the cross products rather than guessing from screenshots.)
+  armAssembly.scale.x = -1;
+  scene.add(armAssembly);
+
+  // Shoulder assembly, top to bottom:
+  //   armAssembly (fixed world position)
+  //     -> abductionPivot   ("Rotation 2" — lifts the WHOLE arm out to the
+  //                          side about Z, like a jumping-jack arm raise)
+  //          -> white domed cap  (rounded shoulder cover, sits above the
+  //                               black cylinder — matches the reference
+  //                               photo: white rounded shape over a dark
+  //                               joint housing)
+  //          -> shoulderPivot   ("Rotation 1" — spins the whole arm about
+  //                              its own long axis, Y)
+  //               -> black cylinder housing (same diameter as the bicep's
+  //                                           top end, low profile)
+  //               -> shoulderAnchor -> bicep + elbow + forearm + wrist + hand
+  var shoulderMat = new THREE.MeshStandardMaterial({ color: 0x161616, roughness:0.55, metalness:0.2 });
+  var shoulderCapMat = new THREE.MeshStandardMaterial({ color: 0xf5f2ea, roughness:0.5, metalness:0.04 }); // white, matches skin shell tone
+  var bicepTopRadius = 0.40; // matches the bicep's top radius exactly (see bicepProfile below)
+  var shoulderCylRadius = bicepTopRadius;
+  var shoulderCylHeight = 0.22; // less than half of the previous 0.55 box height
+
+  // Rotation 2 pivot — this is the TOP of the assembly, so rotating it
+  // carries the cap, the black cylinder, and everything below (bicep,
+  // elbow, forearm, wrist, hand) out to the side together, like raising a
+  // whole arm sideways from the shoulder.
+  var abductionPivot = new THREE.Group();
+  armAssembly.add(abductionPivot);
+
+  // Extend joint: hinges the WHOLE assembly (joint housing + bicep down to
+  // hand) forward together, about X, from the shoulder. Sits directly
+  // under abductionPivot, above both the joint housing and shoulderPivot,
+  // so bending it swings everything below as one rigid piece — no
+  // counter-rotation needed for that part.
+  var extendPivot = new THREE.Group();
+  abductionPivot.add(extendPivot);
+
+  // The cube/cylinder joint housing lives directly on extendPivot, as a
+  // SIBLING of shoulderPivot (not a descendant of it) — so "Rotation 1"
+  // (the shoulder slider, applied only inside shoulderPivot) spins the arm
+  // (bicep down to hand) WITHOUT moving this housing at all, while the
+  // extend joint (applied on their shared parent, extendPivot) still
+  // carries both of them forward together. No counter-rotation math is
+  // needed since the housing simply isn't inside shoulderPivot's subtree.
+  var jointHousingGroup = new THREE.Group();
+  extendPivot.add(jointHousingGroup);
+
+  // Rotation 1 — spins ONLY the arm (bicep/elbow/forearm/hand) about its
+  // own long axis (Y). Also a child of extendPivot, alongside
+  // jointHousingGroup, so it still swings forward with the extend joint,
+  // but its own Y-spin never touches the (sibling) joint housing.
+  var shoulderPivot = new THREE.Group();
+  extendPivot.add(shoulderPivot);
+
+  var capRadius = shoulderCylRadius;
+
+  // Small black cylinder lying on its side (axis along X), connected
+  // face-to-face with one side of a small white cube. The cylinder's
+  // flat circular end-cap (at local +X, since its axis runs along X after
+  // the 90° rotation) touches the cube's -X face directly, with no gap.
+  var sideCylRadius = capRadius * 0.6;
+  var sideCylHeight = shoulderCylHeight * 0.9; // short, so it reads as a small connecting stub
+  var shoulderSideCyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(sideCylRadius, sideCylRadius, sideCylHeight, 24),
+    shoulderMat
+  );
+  shoulderSideCyl.rotation.z = Math.PI / 2; // lay on its side so its flat end-caps point along X
+  shoulderSideCyl.position.set(-sideCylHeight/2, shoulderCylHeight/2, 0);
+  shoulderSideCyl.castShadow = true;
+  shoulderSideCyl.receiveShadow = true;
+  jointHousingGroup.add(shoulderSideCyl);
+
+  // Small white cube, connected flush to the cylinder's other end-cap
+  // (world x = 0, i.e. the +X face of the cylinder once rotated), so the
+  // cube's own -X face sits right at that plane with no gap.
+  var cubeSize = capRadius * 1.1; // small cube
+  var shoulderCap = new THREE.Mesh(
+    new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize),
+    shoulderCapMat
+  );
+  shoulderCap.position.set(cubeSize/2, shoulderCylHeight/2, 0);
+  shoulderCap.castShadow = true;
+  shoulderCap.receiveShadow = true;
+  jointHousingGroup.add(shoulderCap);
+
+  // Big black cylinder connected to the OPPOSITE face of the cube (its
+  // +X face, at world x = cubeSize), also lying on its side (axis along
+  // X) so its flat end-cap touches that face directly, no gap. Short in
+  // height (a slim disc) but wide enough radius to just cover the cube
+  // plus a small margin around it.
+  var bigCylRadius = cubeSize * 0.8;
+  var bigCylHeight = shoulderCylHeight * 0.9;
+  var shoulderBigCyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(bigCylRadius, bigCylRadius, bigCylHeight, 24),
+    shoulderMat
+  );
+  shoulderBigCyl.rotation.z = Math.PI / 2; // lay on its side so its flat end-caps point along X
+  shoulderBigCyl.position.set(cubeSize + bigCylHeight/2, shoulderCylHeight/2, 0);
+  shoulderBigCyl.castShadow = true;
+  shoulderBigCyl.receiveShadow = true;
+  jointHousingGroup.add(shoulderBigCyl);
+
+  // Another cylinder connected to the OUTER face of shoulderBigCyl (at
+  // world x = cubeSize + bigCylHeight), also lying on its side. Slightly
+  // smaller radius than shoulderBigCyl, but taller/longer height.
+  var extraCylRadius = bigCylRadius * 0.85;
+  var extraCylHeight = bigCylHeight * 1.6;
+  var shoulderExtraCyl = new THREE.Mesh(
+    new THREE.CylinderGeometry(extraCylRadius, extraCylRadius, extraCylHeight, 24),
+    shoulderMat
+  );
+  shoulderExtraCyl.rotation.z = Math.PI / 2; // lay on its side so its flat end-caps point along X
+  shoulderExtraCyl.position.set(cubeSize + bigCylHeight + extraCylHeight/2, shoulderCylHeight/2, 0);
+  shoulderExtraCyl.castShadow = true;
+  shoulderExtraCyl.receiveShadow = true;
+  jointHousingGroup.add(shoulderExtraCyl);
+
+  // ---------- Stable cube on a ball-and-socket, at the far end ----------
+  // A small ball-and-socket joint sits flush against the outer face of
+  // shoulderExtraCyl, and a cube rides on the ball. The cube is "gyro
+  // stabilized": no matter how the arm/shoulder/extend/abduction joints
+  // rotate the chain above it, the cube itself never visibly spins or
+  // tumbles — it keeps a constant world-space orientation, like a gimbal
+  // weight that stays level. Only its POSITION follows the joint (it
+  // still travels with the arm), never its rotation.
+  var gyroSocketMat = shoulderMat;   // dark socket housing, matches other joints
+  var gyroBallMat = jointMat;        // dark ball, matches other actuator housings
+
+  // Socket cup — a short, wide cylinder flush against shoulderExtraCyl's
+  // outer face, same radius family as the other stub joints so it reads
+  // as part of the same mechanical chain.
+  var gyroSocketRadius = extraCylRadius * 0.75;
+  var gyroSocketDepth = extraCylRadius * 0.55;
+  var gyroSocket = new THREE.Mesh(
+    new THREE.CylinderGeometry(gyroSocketRadius, gyroSocketRadius, gyroSocketDepth, 20),
+    gyroSocketMat
+  );
+  gyroSocket.rotation.z = Math.PI / 2; // lay on its side, flat face along X, matching the cylinder chain
+  var gyroSocketX = cubeSize + bigCylHeight + extraCylHeight + gyroSocketDepth/2;
+  gyroSocket.position.set(gyroSocketX, shoulderCylHeight/2, 0);
+  gyroSocket.castShadow = true;
+  gyroSocket.receiveShadow = true;
+  jointHousingGroup.add(gyroSocket); // socket housing is part of the rigid joint chain — it CAN rotate with the arm
+
+  // Ball — sits right at the socket's outer face, this is the pivot point
+  // the cube hangs from.
+  var gyroBallRadius = gyroSocketRadius * 0.85;
+  var gyroBallX = gyroSocketX + gyroSocketDepth/2;
+  var gyroBall = new THREE.Mesh(
+    new THREE.SphereGeometry(gyroBallRadius, 20, 16),
+    gyroBallMat
+  );
+  gyroBall.position.set(gyroBallX, shoulderCylHeight/2, 0);
+  gyroBall.castShadow = true;
+  gyroBall.receiveShadow = true;
+  jointHousingGroup.add(gyroBall); // the ball itself is fixed to the housing, same as the socket
+
+  // gyroCubeAnchor: a plain, unrotated group placed directly in the SCENE
+  // (not anywhere in the arm hierarchy), positioned every frame to match
+  // the ball's live world position but with IDENTITY world rotation. This
+  // is what makes the cube "stable" — its position tracks the joint, but
+  // its orientation is completely decoupled from every rotation above it
+  // (shoulder spin, extend hinge, abduction lift), so it never appears to
+  // tumble or spin — like a gyroscope staying level while its mount moves.
+  var gyroCube = new THREE.Mesh(
+    new THREE.BoxGeometry(cubeSize*0.9, cubeSize*0.9, cubeSize*0.9),
+    shoulderCapMat // same white plastic as the other cube, for visual consistency
+  );
+  gyroCube.castShadow = true;
+  gyroCube.receiveShadow = true;
+  scene.add(gyroCube); // scene-level: parenting it here means arm rotations never touch its local transform at all
+
+  // Thin dark pivot pin through the ball, visually bridging ball -> cube
+  // even though they're not in the same local space — redrawn every frame
+  // at the ball's current world position, oriented to always point at the
+  // cube (so the "stalk" visibly follows along without itself looking like
+  // it's rigidly rotating with the arm).
+  var gyroPinRadius = gyroBallRadius * 0.25;
+  var gyroPin = new THREE.Mesh(
+    new THREE.CylinderGeometry(gyroPinRadius, gyroPinRadius, 1, 10), // unit length, rescaled per-frame
+    gyroBallMat
+  );
+  gyroPin.castShadow = true;
+  scene.add(gyroPin);
+
+  var gyroBallWorld = new THREE.Vector3();
+  // World-space offset direction the cube sits out from the ball. The
+  // whole housing chain (cube/cylinders/socket/ball) is built along
+  // jointHousingGroup's local +X, which armAssembly's mirror (scale.x=-1)
+  // flips into world -X — so continuing "outward" in that same direction
+  // means the offset here must also be NEGATIVE X, not positive. Positive
+  // X was pointing back in toward the body/bicep, which is what put the
+  // cube inside the arm at rest instead of clear of it.
+  var gyroCubeOffset = new THREE.Vector3(-(gyroBallRadius + cubeSize*2.2), 0, 0);
+
+  function updateGyroCube(){
+    scene.updateMatrixWorld(true);
+    gyroBall.getWorldPosition(gyroBallWorld);
+    // Cube position: fixed offset from the ball in WORLD space (not the
+    // ball's local +X, which would rotate with the arm) — so it always
+    // sits out past the ball on a constant world direction, then just
+    // slides along as the ball itself moves through space.
+    gyroCube.position.copy(gyroBallWorld).add(gyroCubeOffset);
+    gyroCube.rotation.set(0,0,0); // never rotates — this is the "gyro stabilized" part
+
+    // Pin: stretch a unit cylinder to bridge ball -> cube exactly, using
+    // lookAt-style alignment (cylinders default to pointing along +Y).
+    var mid = gyroBallWorld.clone().lerp(gyroCube.position, 0.5);
+    var dist = gyroBallWorld.distanceTo(gyroCube.position);
+    gyroPin.position.copy(mid);
+    gyroPin.scale.set(1, dist, 1);
+    var dir = gyroCube.position.clone().sub(gyroBallWorld).normalize();
+    var up = new THREE.Vector3(0,1,0);
+    gyroPin.quaternion.setFromUnitVectors(up, dir);
+  }
+
+  var shoulderBlock = new THREE.Mesh(
+    new THREE.CylinderGeometry(shoulderCylRadius, shoulderCylRadius, shoulderCylHeight, 24),
+    shoulderMat
+  );
+  shoulderBlock.position.set(0, shoulderCylHeight/2, 0); // sits directly above the bicep's top
+  shoulderBlock.castShadow = true;
+  shoulderBlock.receiveShadow = true;
+  // On shoulderPivot so it spins together with the bicep under Rotation 1
+  // (they're meant to rotate as one rigid piece), and also swings forward
+  // with the extend joint since shoulderPivot itself is a child of
+  // extendPivot.
+  shoulderPivot.add(shoulderBlock);
+
+  var shoulderAnchor = new THREE.Group(); // future shoulder attachment point; bicep/elbow/forearm/hand all hang from here
+  shoulderPivot.add(shoulderAnchor);
+
+  // Flush end-cap disc: closes the open hollow top of the bicep lathe
+  // (which previously showed through as a small, oddly-placed dark circle)
+  // with a disc whose radius exactly matches the CYLINDER's radius (not
+  // the quadrant's, which is now larger/independent), centered on the same
+  // vertical axis — so it aligns perfectly with the cylinder's own rim.
+  var shoulderCapDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(shoulderCylRadius, 24),
+    shoulderCapMat
+  );
+  shoulderCapDisc.rotation.x = -Math.PI/2; // lie flat, facing up
+  shoulderCapDisc.position.set(0, 0.001, 0); // sits right at the bicep-top / cylinder-bottom seam
+  shoulderCapDisc.receiveShadow = true;
+  shoulderAnchor.add(shoulderCapDisc);
+
+
+  function setShoulderRotation(deg){
+    // Same mapping as setWristRotation: 90° is neutral (arm hangs straight),
+    // slider range 0–180 swings it symmetrically either side. shoulderPivot
+    // is a sibling of jointHousingGroup (both children of extendPivot), so
+    // this spin never touches the joint housing at all — no counter-
+    // rotation math needed.
+    shoulderPivot.rotation.y = (deg - 90) * Math.PI / 180;
+  }
+
+  function setAbductionRotation(deg){
+    // 0° = arm hanging straight down (neutral); 90° = fully lifted out to
+    // the side (jumping-jack style). Range is 0–90 only now, so 0 itself
+    // is the resting position rather than the midpoint of a wider range.
+    // Negated: armAssembly is mirrored (scale.x = -1) to make this a right
+    // arm, and that mirror flips the visual sense of a Z-axis rotation, so
+    // without the flip here the arm was lifting toward the wrong side.
+    abductionPivot.rotation.z = -deg * Math.PI / 180;
+  }
+
+  // Extend joint: hinges the whole assembly (joint housing + bicep down to
+  // hand) forward together at extendPivot, all as one rigid piece, since
+  // both jointHousingGroup and shoulderPivot are children of extendPivot.
+  // 0° = resting straight down (neutral), sweeping forward as the slider
+  // increases, up to 180°.
+  function setExtendJoint(deg){
+    extendPivot.rotation.x = deg * Math.PI / 180;
+  }
+
+  var elbowBallRadius = 0.4;
+  var cuffBottomRadius = 0.6; // matches the wrist cuff's bottom radius exactly
+  var jointGap = 0.34; // visible open space between bicep and forearm sockets, showing the ball joint
+
+  // Bicep — fixed, straight, never bends. Muscular lathe profile (belly in
+  // the middle, necking toward the shoulder cut and toward a socket cup
+  // that stops short of the elbow ball, leaving it visibly exposed).
+  var bicepLen = 2.0;
+  var bicepProfile = [
+    new THREE.Vector2(0.40,                 0),
+    new THREE.Vector2(0.48,                -bicepLen*0.18),
+    new THREE.Vector2(0.55,                -bicepLen*0.42), // muscle belly
+    new THREE.Vector2(0.50,                -bicepLen*0.68),
+    new THREE.Vector2(0.40,                -bicepLen*0.88),
+    new THREE.Vector2(elbowBallRadius*1.15, -bicepLen*0.97), // socket cup rim
+    new THREE.Vector2(elbowBallRadius*0.7,  -bicepLen)        // socket floor — stops before the ball
+  ];
+  var bicepGeo = new THREE.LatheGeometry(bicepProfile, 20);
+  var bicep = new THREE.Mesh(bicepGeo, forearmMat);
+  bicep.castShadow = true;
+  bicep.receiveShadow = true;
+  shoulderAnchor.add(bicep);
+
+  // Elbow pivot — sits in open space BELOW the bicep socket, out past the
+  // gap, so the ball joint is fully visible rather than nested flush
+  // inside the bicep housing.
+  var elbowPivot = new THREE.Group();
+  elbowPivot.position.set(0, -bicepLen - jointGap, 0);
+  shoulderAnchor.add(elbowPivot);
+
+  var elbowBall = new THREE.Mesh(new THREE.SphereGeometry(elbowBallRadius, 24, 18), forearmJointMat);
+  elbowBall.castShadow = true;
+  elbowPivot.add(elbowBall);
+
+  // A short connecting rod/axle through the gap keeps the ball from
+  // reading as floating disconnected while still leaving it clearly
+  // showcased — a thin metal shaft, not a full-radius plastic shell.
+  var elbowAxle = new THREE.Mesh(new THREE.CylinderGeometry(elbowBallRadius*0.22, elbowBallRadius*0.22, jointGap*1.4, 12), forearmJointMat);
+  elbowAxle.position.set(0, jointGap*0.7, 0);
+  elbowAxle.castShadow = true;
+  elbowPivot.add(elbowAxle);
+
+  // Forearm pivot — THIS is what the Arm slider rotates. At rotation.x = 0
+  // the forearm continues straight in line with the bicep (fully extended
+  // arm); increasing the slider bends the elbow, swinging the forearm
+  // (and the wrist + hand riding on it) — the bicep never moves.
+  var forearmPivot = new THREE.Group();
+  elbowPivot.add(forearmPivot);
+
+  // Forearm mesh — human-proportioned: two visible muscle masses (radius/
+  // ulna bulk) just below the elbow that are wider than the elbow ball
+  // itself, a gentle taper through the mid-forearm, then narrowing again
+  // to the wrist. A slight forward bow (Z offset) instead of a dead-straight
+  // lathe reads far more like a real forearm than a uniform taper.
+  var forearmLen = 2.6;
+  var socketRadius = elbowBallRadius * 1.15; // socket cup that cradles the ball from below, mirrors the bicep's cup
+  var forearmProfile = [
+    new THREE.Vector2(socketRadius*0.7,          0),            // socket floor, meets the ball from underneath
+    new THREE.Vector2(socketRadius,              forearmLen*0.03),
+    new THREE.Vector2(cuffBottomRadius*0.98,     -forearmLen*0.10), // muscle bulk just below elbow (wider than ball)
+    new THREE.Vector2(cuffBottomRadius*1.05,     -forearmLen*0.22), // peak bulk
+    new THREE.Vector2(cuffBottomRadius*0.88,     -forearmLen*0.45),
+    new THREE.Vector2(cuffBottomRadius*0.80,     -forearmLen*0.66), // narrowest mid-point
+    new THREE.Vector2(cuffBottomRadius*0.86,     -forearmLen*0.85),
+    new THREE.Vector2(cuffBottomRadius,          -forearmLen)
+  ];
+  var forearmGeo = new THREE.LatheGeometry(forearmProfile, 22);
+  // Slight forward bow: bend the lathe profile along Z so the forearm
+  // isn't a perfectly straight rod (subtle, but reads as a real limb).
+  var fPos = forearmGeo.attributes.position;
+  for (var fi=0; fi<fPos.count; fi++){
+    var fy = fPos.getY(fi);
+    var t = -fy / forearmLen; // 0 at elbow, 1 at wrist
+    var bow = Math.sin(t * Math.PI) * 0.05;
+    fPos.setZ(fi, fPos.getZ(fi) + bow);
+  }
+  fPos.needsUpdate = true;
+  forearmGeo.computeVertexNormals();
+  var forearm = new THREE.Mesh(forearmGeo, forearmMat);
+  forearm.position.y = -jointGap; // sits below the exposed ball/axle gap
+  forearm.castShadow = true;
+  forearm.receiveShadow = true;
+  forearmPivot.add(forearm);
+
+  // Attach the hand to the bottom of the forearm. wristGroup is rotated
+  // 180° here so its own internal "cuff end -> fingertip end" direction
+  // points AWAY from the elbow once attached (this is what makes the hand
+  // hang down properly instead of folding back over the forearm — the bug
+  // in the previous version). The cuff's bottom face sits at local
+  // y = -1.75 - 0.275 = -2.025 inside wristGroup (pre-rotation); after the
+  // 180° flip that point lands at (wristGroup.position.y + 2.025), which
+  // is set to exactly match the forearm's far end (-forearmLen) so the two
+  // circles coincide with no gap:
+  //   wristGroup.position.y + 2.025 = -forearmLen - jointGap
+  //   wristGroup.position.y = -forearmLen - jointGap - 2.025
+  wristGroup.rotation.x = Math.PI;
+  wristGroup.position.set(0, -forearmLen - jointGap - 2.025, 0);
+  forearmPivot.add(wristGroup);
+
+  // world-space Y of the elbow pivot, used for camera focus-shift targeting.
+  armAssembly.updateMatrixWorld(true);
+  var elbowWorldVec = new THREE.Vector3();
+  elbowPivot.getWorldPosition(elbowWorldVec);
+  var elbowWorldY = elbowWorldVec.y;
+
+  // ---------- Elbow: fixed camera position (like wrist/shoulder/abduction) ----------
+  // Previously this reused the generic manual-orbit variables (camTheta/
+  // camPhi/camDist), which can be left in a stale state by prior dragging
+  // or other focus views, and that stale state pointed the camera at empty
+  // background instead of the elbow. Replaced with its own static,
+  // purpose-built position/look-at, exactly like the other joints.
+  // Look-at target is the elbow BALL JOINT itself, kept as the visual
+  // center of the shot. Since elbow flexion swings the forearm forward/
+  // back in Z (rotation about X), a view "from the side" means placing the
+  // camera out along X at roughly the ball's own height, looking back
+  // across at the joint — this shows the ball-and-socket edge-on, with the
+  // forearm swinging toward/away from camera rather than side-to-side, and
+  // still leaves the hand visible below as it swings through that arc.
+  var armSwingSpan = forearmLen + jointGap + 2.025; // elbow down to roughly the hand center
+  // Offsets from the elbow's live world position rather than an absolute
+  // coordinate baked in from the rest pose — otherwise this view goes
+  // stale (still pointing at the OLD elbow height/position) as soon as the
+  // shoulder rotation or abduction lift has moved the elbow elsewhere.
+  //
+  // Look-at is centered between the elbow joint and the hand below it so
+  // both joints (elbow ball-and-socket above, wrist/hand below) are
+  // clearly visible in frame together. Elbow flexion rotates about X,
+  // swinging the forearm through the Y-Z plane, so a camera placed purely
+  // along X (perpendicular to that swing plane, with zero Z offset) shows
+  // the bend as a flat, straight-on profile — not foreshortened or
+  // angled — with the forearm swinging directly toward/away from camera.
+  // Straight-on profile view: camera sits purely along X (perpendicular to
+  // the elbow's swing plane, which is Y-Z), with NO Z offset. Camera is
+  // raised closer to the elbow's own height (rather than noticeably below
+  // it) so the shot doesn't tilt upward looking at the joint — a level,
+  // flat "plane" shot with both the bicep-side and forearm-side joints
+  // clearly visible, instead of a low angle looking up.
+  var ARM_VIEW_POS_OFFSET = new THREE.Vector3(6.5, armSwingSpan * 0.32, 0);
+  var ARM_VIEW_LOOKAT_OFFSET = new THREE.Vector3(0, armSwingSpan * 0.05, 0);
+
+  // small dark screw/pivot dot on the side of the wrist, echoing the
+  // reference photo's visible hardware
+  var screw = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.08,10), jointMat);
+  screw.rotation.z = Math.PI/2;
+  screw.position.set(0.55, -0.05, 0.1);
+  handGroup.add(screw);
+
+  // Finger builder: returns { root(Object3D), joints:[pivot1,pivot2,pivot3] }
+  // rot lets us pass a full euler rotation (used for the thumb, which needs
+  // to angle out from the side of the palm rather than just splay like a finger)
+  function buildFinger(segLens, segRad, baseX, baseY, baseZ, splay, rot){
+    var root = new THREE.Group();
+    root.position.set(baseX, baseY, baseZ);
+    if (rot){
+      root.rotation.set(rot.x||0, rot.y||0, rot.z||0);
+    } else {
+      root.rotation.z = splay || 0;
+    }
+    handGroup.add(root);
+
+    var joints = [];
+    var parent = root;
+    for (var i=0;i<segLens.length;i++){
+      var len = segLens[i];
+      var rTop = segRad[i];
+      var rBot = segRad[i+1] !== undefined ? segRad[i+1] : segRad[i]*0.85;
+
+      var pivot = new THREE.Group();
+      parent.add(pivot);
+
+      // segment shell — full-length cylinder so each segment connects
+      // directly to the joint above/below it with no visible gap
+      var geo = new THREE.CylinderGeometry(rTop, rBot, len, 8);
+      geo.translate(0, len/2, 0);
+      var mesh = new THREE.Mesh(geo, skinMat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      pivot.add(mesh);
+
+      // black joint pivot (knuckle) — cylindrical hinge barrel instead of
+      // a smooth sphere, plus a thin exposed wire, matching the visible
+      // mechanism at each finger joint in the reference photo.
+      var hinge = new THREE.Mesh(new THREE.CylinderGeometry(rTop*0.92, rTop*0.92, rTop*1.7, 8), jointMat);
+      hinge.rotation.z = Math.PI/2;
+      hinge.castShadow = true;
+      pivot.add(hinge);
+      var jWire = new THREE.Mesh(new THREE.CylinderGeometry(rTop*0.1, rTop*0.1, len*0.7, 5), wireMat);
+      jWire.position.set(0, len*0.45, rTop*0.75);
+      pivot.add(jWire);
+
+      joints.push(pivot);
+
+      var next = new THREE.Group();
+      next.position.set(0, len, 0);
+      pivot.add(next);
+      parent = next;
+    }
+    // fingertip cap — small tip cap over the last segment
+    var tip = new THREE.Mesh(new THREE.SphereGeometry(segRad[segRad.length-1]*0.85, 8, 6), skinMat);
+    parent.add(tip);
+
+    return { root: root, joints: joints };
+  }
+
+  var fingers = {
+    // Thumb: attached directly at the palm's thumb-side edge (matching the
+    // palm shape's radial-side vertices around x:-0.80,y:-0.55 to x:-0.66,y:0.70)
+    // with a base knuckle block bridging the join so it doesn't float free
+    // of the palm.
+    thumb:  buildFinger([0.5, 0.4], [0.23,0.19,0.15], -0.78, -0.05, 0.14, null,
+              { x: -0.35, y: 0, z: 0.85 }),
+    index:  buildFinger([0.62, 0.42, 0.34],[0.16,0.135,0.11,0.09], -0.58, 0.98, 0.1, 0.08),
+    middle: buildFinger([0.68, 0.46, 0.36],[0.17,0.14,0.11,0.09], -0.18, 1.05, 0.1, 0.02),
+    ring:   buildFinger([0.62, 0.42, 0.33],[0.16,0.13,0.105,0.085], 0.22, 1.0, 0.1, -0.03),
+    pinky:  buildFinger([0.5, 0.34, 0.28], [0.135,0.11,0.09,0.075], 0.6, 0.84, 0.08, -0.1)
+  };
+
+  // Thumb base knuckle — a stub block that visually connects the thumb
+  // root to the palm shell so there's no visible gap/hover between them.
+  var thumbBase = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.3, 10), skinMat);
+  thumbBase.position.set(-0.78, -0.05, 0.08);
+  thumbBase.rotation.z = 1.1;
+  thumbBase.rotation.x = -0.2;
+  thumbBase.castShadow = true;
+  handGroup.add(thumbBase);
+
+  // Index/pinky knuckle bridges — small stub blocks connecting those two
+  // finger bases to the palm shell, same idea as the thumb base, so the
+  // joint doesn't appear to hover off the palm edge.
+  var indexBase = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.17, 0.22, 10), skinMat);
+  indexBase.position.set(-0.58, 0.9, 0.08);
+  indexBase.rotation.x = -0.25;
+  indexBase.castShadow = true;
+  handGroup.add(indexBase);
+
+  var pinkyBase = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.145, 0.2, 10), skinMat);
+  pinkyBase.position.set(0.6, 0.76, 0.06);
+  pinkyBase.rotation.x = -0.25;
+  pinkyBase.castShadow = true;
+  handGroup.add(pinkyBase);
+
+  handGroup.rotation.x = 0;
+  handGroup.position.y = 0;
+
+  // ---------- Slider wiring ----------
+  var MAX_CURL = { thumb: 1.0, index: 1.5, middle: 1.5, ring: 1.5, pinky: 1.5 };
+
+  function curlFinger(name, t){ // t in [0,1]
+    var f = fingers[name];
+    var max = MAX_CURL[name];
+    f.joints.forEach(function(pivot, i){
+      var per = max * (i === 0 ? 0.85 : 1.0); // base joint bends slightly less
+      pivot.rotation.x = per * t;
+    });
+    if (name === 'thumb'){
+      // thumb curls across the palm (adduction) in addition to bending,
+      // which is what makes a real thumb-curl look correct rather than
+      // just folding forward like a finger
+      f.root.rotation.z = 0.95 + 0.5 * t;
+    }
+  }
+
+  // Wrist rotation: spins handGroup (and the attached collar) around the
+  // forearm axis (Y), while the cuff mesh (on wristGroup) stays fixed —
+  // like a real wrist turning inside a static socket housing. 90° is the
+  // neutral pose; the slider goes from 0 to 180 either side of that.
+  var wristSlider = document.getElementById('wrist-slider');
+  var wristOut = document.getElementById('out-wrist');
+  function setWristRotation(deg){
+    handGroup.rotation.y = (deg - 90) * Math.PI / 180;
+  }
+  wristSlider.addEventListener('input', function(){
+    var v = parseFloat(wristSlider.value);
+    wristOut.textContent = Math.round(motorOf('wrist-slider',v)) + '°';
+    setWristRotation(v);
+    scene.updateMatrixWorld(true); // ensure the new wrist rotation is reflected before the camera reads palm orientation
+    fingerViewStale = true; // wrist rotation reorients the hand, so any later finger-view use must recompute
+    focusWrist(); // re-asserts the SAME cached camera target — does not recompute, so the shot holds still while the wrist turns
+  });
+  setWristRotation(90);
+
+  // Shoulder rotation 1: spins the ENTIRE arm assembly (shoulder block +
+  // bicep + elbow + forearm + wrist + hand, all together, since they all
+  // hang from shoulderAnchor which is a child of shoulderPivot) about the
+  // same vertical axis, with the exact same 0–180°/90°-neutral convention
+  // as the wrist slider — it's the same kind of rotation, just applied one
+  // level higher up the chain so it carries everything below it along.
+  var shoulderSlider = document.getElementById('shoulder-slider');
+  var shoulderOut = document.getElementById('out-shoulder');
+  shoulderSlider.addEventListener('input', function(){
+    var v = parseFloat(shoulderSlider.value);
+    shoulderOut.textContent = Math.round(motorOf('shoulder-slider',v)) + '°';
+    setShoulderRotation(v);
+    scene.updateMatrixWorld(true);
+    fingerViewStale = true; // shoulder rotation relocates the hand in world space
+    wristViewStale = true; // ...and invalidates the cached wrist shot too, so it re-frames on the palm's new position next time
+    focusShoulder(); // frame the shoulder joint + whole arm rotating below it
+  });
+  setShoulderRotation(90);
+
+  // Rotation 2 (abduction/lift): raises the whole arm out to the side from
+  // the shoulder, jumping-jack style. Framed from a side-on camera angle
+  // so the lift motion is clearly visible as it happens.
+  var abductionSlider = document.getElementById('abduction-slider');
+  var abductionOut = document.getElementById('out-abduction');
+  abductionSlider.addEventListener('input', function(){
+    var v = parseFloat(abductionSlider.value);
+    abductionOut.textContent = Math.round(motorOf('abduction-slider',v)) + '°';
+    setAbductionRotation(v);
+    scene.updateMatrixWorld(true);
+    fingerViewStale = true; // abduction lift relocates the hand in world space
+    wristViewStale = true;
+    focusAbduction();
+  });
+  setAbductionRotation(0);
+
+  // Extend joint: slides the arm forward out of the small side-cylinder/
+  // cube joint. Reuses the shoulder camera framing since it's the same
+  // general area of the rig.
+  var extendSlider = document.getElementById('extend-slider');
+  var extendOut = document.getElementById('out-extend');
+  extendSlider.addEventListener('input', function(){
+    var v = parseFloat(extendSlider.value);
+    extendOut.textContent = Math.round(motorOf('extend-slider',v)) + '°';
+    setExtendJoint(v);
+    scene.updateMatrixWorld(true);
+    fingerViewStale = true; // extend joint relocates the hand in world space
+    wristViewStale = true;
+    focusShoulder();
+  });
+  setExtendJoint(0);
+
+  updateGyroCube(); // position the stable cube correctly before the first render
+  focusFingers(); // establish an initial well-framed view of the whole hand
+  lastArmFocusFn = focusArm; // so the Arm shot zoom slider does something the very first time it's touched, even before any shoulder/elbow/wrist slider has been moved yet
+
+  document.getElementById('autofocus-toggle').addEventListener('click', function(){
+    setAutoFocusEnabled(!autoFocusEnabled);
+  });
+
+  var sliderIds = ['thumb','index','middle','ring','pinky'];
+  sliderIds.forEach(function(id){
+    var input = document.getElementById(id);
+    var out = document.getElementById('out-'+id);
+    input.addEventListener('input', function(){
+      var max = parseFloat(input.max);
+      var val = parseFloat(input.value);
+      out.textContent = Math.round(motorOf(id,val)) + '°';
+      curlFinger(id, val/max);
+      // Force recompute every time (not just on the initial cached shot):
+      // fingers curling or splaying changes the hand's actual bounding
+      // box, so re-fitting to it each move keeps every finger correctly
+      // in frame instead of reusing a box sized for whatever pose was
+      // open the first time.
+      focusFingers(true);
+    });
+  });
+
+  // Arm / elbow joint slider — bends the lower forearm at the elbow pivot
+  // and shifts camera focus down to that joint while it's being dragged.
+  var armSlider = document.getElementById('arm-slider');
+  var armOut = document.getElementById('out-arm');
+  armSlider.addEventListener('input', function(){
+    var v = parseFloat(armSlider.value);
+    armOut.textContent = Math.round(motorOf('arm-slider',v)) + '°';
+    // Positive, unmirrored: worked through the actual rotation math (see
+    // notes near armAssembly.scale.x = -1) — a mirror across X does NOT
+    // flip the visual direction of an X-axis rotation when the limb starts
+    // out pointing along -Y, unlike Z-axis (abduction), which does. This
+    // also matches real elbow anatomy: positive rotation.x swings the
+    // forearm toward -Z (the front/camera side), i.e. flexion, not
+    // hyperextension.
+    forearmPivot.rotation.x = v * Math.PI / 180;
+    fingerViewStale = true; // elbow flex relocates the hand in world space
+    wristViewStale = true;
+    focusArm();
+  });
+
+  function setPose(vals, animate){
+    sliderIds.forEach(function(id){
+      var input = document.getElementById(id);
+      var out = document.getElementById('out-'+id);
+      var v = vals[id];
+      input.value = v;
+      out.textContent = Math.round(motorOf(id,v)) + '°';
+      curlFinger(id, v/parseFloat(input.max));
+    });
+  }
+
+  document.getElementById('preset-open').addEventListener('click', function(){
+    setPose({ thumb:0, index:0, middle:0, ring:0, pinky:0 });
+  });
+  document.getElementById('preset-fist').addEventListener('click', function(){
+    setPose({ thumb:70, index:100, middle:100, ring:100, pinky:100 });
+  });
+  document.getElementById('preset-point').addEventListener('click', function(){
+    setPose({ thumb:60, index:0, middle:100, ring:100, pinky:100 });
+  });
+  document.getElementById('preset-peace').addEventListener('click', function(){
+    setPose({ thumb:70, index:0, middle:0, ring:100, pinky:100 });
+  });
+  document.getElementById('preset-thumbsup').addEventListener('click', function(){
+    setPose({ thumb:0, index:100, middle:100, ring:100, pinky:100 });
+  });
+
+  // ---------- Render loop ----------
+  // NOTE: this used to gate updateCam() entirely behind `autoFocusActive`.
+  // Any manual drag/scroll on the viewport sets autoFocusActive=false (by
+  // design, so a manual look-around isn't fought by auto-focus), but that
+  // flag was never guaranteed to flip back on before the NEXT playback/
+  // preview tween started — so if you'd ever dragged the viewport even
+  // once, hitting Play could leave the camera frozen in place while the
+  // hand moved (the "camera not following" problem). Fix: whenever a
+  // tween/playback is actively in flight (playbackActive), force the
+  // camera update to run regardless of any earlier manual-drag flag.
+  var playbackActive = false;
+  function animate(){
+    requestAnimationFrame(animate);
+    updateGyroCube(); // keep the stable cube tracking the joint's position every frame, regardless of which slider moved
+    if (playbackActive || (autoFocusEnabled && autoFocusActive)){
+      focusY += (targetFocusY - focusY) * 0.08;
+      focusDistOffset += (targetFocusDistOffset - focusDistOffset) * 0.08;
+      updateCam();
+    }
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', function(){
+    camera.aspect = host.clientWidth/host.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(host.clientWidth, host.clientHeight);
+  });
+
+  window.__handRigReady = true;
+  setStatus('Ready', false);
+  cacheInfo.textContent = 'No external model in use — this hand is generated in code, so there is nothing to cache. Swap in loadHandModel(url) with a real .glb to enable device caching.';
+
+  // ---------- Public API for the gesture recorder / creator UI ----------
+  // Exposes just enough surface area for outside code (the recorder script
+  // below) to read/set joint values, grab a well-framed screenshot, and
+  // know which joints most recently moved — without reaching into any of
+  // the internal three.js rig variables directly.
+  var jointIds = ['thumb','index','middle','ring','pinky','wrist-slider','arm-slider','shoulder-slider','abduction-slider','extend-slider'];
+  var lastMovedGroup = null; // 'fingers' | 'arm' | 'both' | null — set by slider handlers below via a light wrapper
+
+  function currentPose(){
+    var pose = {};
+    jointIds.forEach(function(id){
+      pose[id] = parseFloat(document.getElementById(id).value);
+    });
+    return pose;
+  }
+
+  function applyPose(pose, opts){
+    opts = opts || {};
+    sliderIds.forEach(function(id){
+      if (pose[id] === undefined) return;
+      var input = document.getElementById(id);
+      var out = document.getElementById('out-'+id);
+      input.value = pose[id];
+      out.textContent = Math.round(motorOf(id,pose[id])) + '°';
+      curlFinger(id, pose[id]/parseFloat(input.max));
+    });
+    if (pose['wrist-slider'] !== undefined){
+      wristSlider.value = pose['wrist-slider'];
+      wristOut.textContent = Math.round(motorOf('wrist-slider',pose['wrist-slider'])) + '°';
+      setWristRotation(pose['wrist-slider']);
+    }
+    if (pose['arm-slider'] !== undefined){
+      armSlider.value = pose['arm-slider'];
+      armOut.textContent = Math.round(motorOf('arm-slider',pose['arm-slider'])) + '°';
+      forearmPivot.rotation.x = pose['arm-slider'] * Math.PI / 180;
+    }
+    if (pose['shoulder-slider'] !== undefined){
+      shoulderSlider.value = pose['shoulder-slider'];
+      shoulderOut.textContent = Math.round(motorOf('shoulder-slider',pose['shoulder-slider'])) + '°';
+      setShoulderRotation(pose['shoulder-slider']);
+    }
+    if (pose['abduction-slider'] !== undefined){
+      abductionSlider.value = pose['abduction-slider'];
+      abductionOut.textContent = Math.round(motorOf('abduction-slider',pose['abduction-slider'])) + '°';
+      setAbductionRotation(pose['abduction-slider']);
+    }
+    if (pose['extend-slider'] !== undefined){
+      extendSlider.value = pose['extend-slider'];
+      extendOut.textContent = Math.round(motorOf('extend-slider',pose['extend-slider'])) + '°';
+      setExtendJoint(pose['extend-slider']);
+    }
+    scene.updateMatrixWorld(true);
+    fingerViewStale = true;
+    if (!opts.silent){
+      // Choose the most sensible camera framing for a fully-applied pose —
+      // fingers view covers the common case (hand-only gestures); playback
+      // code in the recorder can override with a specific joint focus.
+      focusFingers(true);
+    }
+  }
+
+  function defaultPose(){
+    var p = {};
+    jointIds.forEach(function(id){
+      var input = document.getElementById(id);
+      p[id] = ({'wrist-slider':90,'shoulder-slider':98,'arm-slider':68,'abduction-slider':26})[id] || 0;
+    });
+    return p;
+  }
+
+  // Start the 3D arm AT the real zero positions (forearm 68, rotation 1 98, lift 26); the sliders then read 0.
+  applyPose(defaultPose());   // also re-frames the camera on the arm's real start position (keeps the hand in view)
+
+  // Which joints differ from the neutral/rest pose, split into the two
+  // camera-relevant groups the spec cares about: fingers vs arm(+shoulder/
+  // wrist/elbow). Used by the recorder to decide what the capture should
+  // frame and what to label the saved step.
+  // Which joints differ from the neutral/rest pose, split into finer
+  // camera-relevant groups (fingers, wrist, elbow, shoulder) instead of one
+  // lumped "arm" bucket — so a save where e.g. only the wrist AND shoulder
+  // moved (but not the elbow/fingers) is correctly recognised as "multiple
+  // parts moved" and gets the full-coverage hero shot, not just the narrow
+  // elbow-focused view.
+  function movedGroups(pose, baseline){
+    baseline = baseline || defaultPose();
+    function moved(ids){ return ids.some(function(id){ return Math.round(pose[id]) !== Math.round(baseline[id]); }); }
+    var fingersMoved = moved(['thumb','index','middle','ring','pinky']);
+    var wristMoved = moved(['wrist-slider']);
+    var elbowMoved = moved(['arm-slider']);
+    var shoulderMoved = moved(['shoulder-slider','abduction-slider','extend-slider']);
+    var armMoved = wristMoved || elbowMoved || shoulderMoved; // kept for backward-compatible callers
+    var movedCount = [fingersMoved, wristMoved, elbowMoved, shoulderMoved].filter(Boolean).length;
+    return {
+      fingers: fingersMoved, arm: armMoved,
+      wrist: wristMoved, elbow: elbowMoved, shoulder: shoulderMoved,
+      multi: movedCount > 1 // true whenever more than one distinct part moved — drives the "cover everything" framing
+    };
+  }
+
+  // Frame the camera for a given pose's moved-group combination and settle
+  // before resolving, so a screenshot taken right after resolves clean.
+  // ---------- Fixed vs Moving camera mode ----------
+  // Moving (default): frameForGroups/tweenTo pick a close, joint-specific
+  // angle (hand close-up, elbow close-up, or a mid-distance combined shot).
+  // Fixed: every photo and every frame of a multi-joint motion instead uses
+  // ONE distant, unmoving wide shot that always keeps the entire hand+arm
+  // rig in frame, regardless of which joints moved — useful for gestures
+  // that involve several joints at once, since nothing ever gets clipped
+  // and the whole assembly reads as one static, comparable angle.
+  var cameraMode = 'moving'; // 'moving' | 'fixed'
+  function setCameraMode(mode){
+    var next = (mode === 'fixed') ? 'fixed' : 'moving';
+    if (next === 'fixed' && cameraMode !== 'fixed'){
+      // Fresh switch into fixed mode: re-baseline the one wide shot from
+      // scratch. It then stays locked (see fixedViewStale) through every
+      // subsequent photo and every frame of playback until toggled off
+      // and on again.
+      fixedViewStale = true;
+    }
+    cameraMode = next;
+  }
+
+  var FIXED_VIEW_POS = null;
+  var FIXED_VIEW_LOOKAT = null;
+  // Only true right when fixed mode is freshly switched on. As long as
+  // it stays false, frameFixedWide() reuses the SAME cached position for
+  // every photo and every tween step — a genuinely unmoving shot for the
+  // whole motion, matching what the toggle's hint text promises. Before,
+  // computeFixedView() ran fresh on every single tween step, so the shot
+  // actually drifted/re-zoomed step to step as the pose (and therefore
+  // the live bounding box) changed — that's the "it isn't fixed" bug.
+  var fixedViewStale = true;
+  function computeFixedView(sweepBox){
+    scene.updateMatrixWorld(true);
+    // Bounding box of the ENTIRE rig (arm assembly + hand), not just the
+    // hand, so the fixed shot always covers every joint no matter how far
+    // the shoulder/elbow/wrist have moved the hand from rest. When a
+    // sweepBox is supplied (start pose ∪ end pose of the tween that's
+    // about to play), use that instead so the very first fixed-mode shot
+    // — computed fresh right as playback begins — already covers the full
+    // arc of THIS motion rather than only wherever the rig happens to be
+    // sitting the instant it's (re)computed.
+    var fullBox = sweepBox || new THREE.Box3().setFromObject(armAssembly);
+    var center = new THREE.Vector3();
+    var size = new THREE.Vector3();
+    fullBox.getCenter(center);
+    fullBox.getSize(size);
+    var radius = size.length() * 0.5;
+    var vFov = camera.fov * Math.PI / 180;
+    var aspect = camera.aspect || (host.clientWidth / host.clientHeight);
+    var hFov = 2 * Math.atan(Math.tan(vFov/2) * aspect);
+    var limitingFov = Math.min(vFov, hFov);
+    // Slightly less fill than the close-up views (0.62 vs 0.8) and a floor
+    // pulled back further, since this angle is deliberately distant so nothing
+    // is ever clipped as joints move through their full range.
+    var dist = Math.max((radius / 0.62) / Math.sin(limitingFov/2), 6);
+    var dir = new THREE.Vector3(0.55, 0.32, -1).normalize();
+    FIXED_VIEW_POS = center.clone().addScaledVector(dir, dist);
+    FIXED_VIEW_LOOKAT = center.clone();
+  }
+  function frameFixedWide(instant, sweepBox){
+    isDragging = false;
+    autoFocusMode = 'hand';
+    lastArmFocusFn = function(){ frameFixedWide(true); };
+    if (fixedViewStale || !FIXED_VIEW_POS){
+      computeFixedView(sweepBox);
+      fixedViewStale = false;
+    }
+    handTargetPos.copy(FIXED_VIEW_POS);
+    handTargetLookAt.copy(FIXED_VIEW_LOOKAT);
+    autoFocusActive = true; // explicit programmatic framing call — always take effect, even if the ambient auto-focus toggle is off or a prior drag suspended it
+    if (instant){
+      camPos.copy(handTargetPos);
+      camLookAt.copy(handTargetLookAt);
+      camera.position.copy(camPos);
+      camera.lookAt(camLookAt);
+    }
+  }
+
+  // ---------- "Hero shot": ad-style framing that covers every part that moved ----------
+  // Used whenever a save/step touched more than one distinct part (e.g.
+  // fingers + elbow, or wrist + shoulder) so nothing gets clipped and the
+  // whole gesture reads as one deliberate, well-composed angle — a slightly
+  // elevated three-quarter view around the full rig's current bounding
+  // box, similar in spirit to a product-shot camera angle rather than a
+  // plain straight-on framing. Respects the arm-zoom slider.
+  // sweepBox (optional): when provided, the framing is computed from THIS
+  // box instead of re-reading the live rig's current bounding box. Callers
+  // driving a tween pass in the UNION of the start-pose and end-pose boxes
+  // (see computeSweepBox below) so the shot covers the whole arc the joints
+  // travel through, not just wherever the rig happens to be sitting the
+  // instant the frame call fires. Without this, a tween that starts far
+  // from the destination pose would frame tightly around only the
+  // destination, and the hand would visibly swing out of frame mid-motion
+  // before ever arriving — the "hand goes off camera during play" bug.
+  var heroBox = new THREE.Box3();
+  function frameHeroShot(sweepBox){
+    isDragging = false;
+    autoFocusMode = 'hand';
+    lastArmFocusFn = function(){ frameHeroShot(sweepBox); };
+    var box;
+    if (sweepBox){
+      box = sweepBox;
+    } else {
+      scene.updateMatrixWorld(true);
+      heroBox.setFromObject(armAssembly);
+      box = heroBox;
+    }
+    var center = new THREE.Vector3();
+    var size = new THREE.Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+    var radius = size.length() * 0.5;
+    var vFov = camera.fov * Math.PI / 180;
+    var aspect = camera.aspect || (host.clientWidth / host.clientHeight);
+    var hFov = 2 * Math.atan(Math.tan(vFov/2) * aspect);
+    var limitingFov = Math.min(vFov, hFov);
+    // A bit more headroom (0.68 fill) than the fixed full-arm shot, and a
+    // three-quarter elevated direction (rather than the fixed view's more
+    // side-on angle) for a more deliberate, "presented" look.
+    var dist = Math.max((radius / 0.68) / Math.sin(limitingFov/2), 5) * getArmZoomScale();
+    var dir = new THREE.Vector3(0.68, 0.42, -0.85).normalize();
+    handTargetPos.copy(center).addScaledVector(dir, dist);
+    handTargetLookAt.copy(center);
+    handTargetUp.set(0, 1, 0);
+    autoFocusActive = true; // explicit capture framing — always takes effect
+  }
+
+  // ---------- Localized "near-joint pair" framing ----------
+  // When exactly two ADJACENT joints moved together (wrist+fingers,
+  // elbow+wrist, or shoulder+elbow), frame tightly around just that
+  // sub-chain instead of the whole arm — e.g. wrist+fingers frames the
+  // hand+wrist only, not the shoulder all the way down. Non-adjacent pairs
+  // (e.g. wrist+shoulder, with the elbow in between) or 3+ moved parts
+  // still use the full-coverage hero shot (frameHeroShot) since the span
+  // between them necessarily covers the whole arm anyway.
+  var CHAIN_ORDER = ['shoulder','elbow','wrist','fingers'];
+  // Which live rig object's bounding box to use for each adjacent pair —
+  // chosen as the nearest common ancestor that contains exactly that
+  // sub-chain (and everything rigidly attached below it, which is
+  // unavoidable/expected since those parts physically hang together).
+  var PAIR_ANCHOR = {
+    'shoulder,elbow': function(){ return shoulderAnchor; }, // bicep+elbow+forearm+wrist+hand
+    'elbow,wrist':    function(){ return elbowPivot; },     // elbow ball+forearm+wrist+hand (excludes bicep/shoulder)
+    'wrist,fingers':  function(){ return wristGroup; }       // cuff+hand+fingers (excludes forearm/elbow/shoulder)
+  };
+  function adjacentPairAnchor(groups){
+    var moved = CHAIN_ORDER.filter(function(k){ return groups[k]; });
+    if (moved.length !== 2) return null;
+    var i0 = CHAIN_ORDER.indexOf(moved[0]), i1 = CHAIN_ORDER.indexOf(moved[1]);
+    if (Math.abs(i0 - i1) !== 1) return null; // not adjacent — fall back to full hero shot
+    var key = moved[0] + ',' + moved[1];
+    var fn = PAIR_ANCHOR[key];
+    return fn ? fn() : null;
+  }
+
+  // sweepBox: same idea as frameHeroShot's — when provided (a union of the
+  // start- and end-pose local boxes for this same anchor), frame from that
+  // instead of re-measuring the anchor's live current box, so a tween's
+  // localized pair shot also covers the whole arc it swings through.
+  var pairBox = new THREE.Box3();
+  function framePairShot(anchorObj, sweepBox){
+    isDragging = false;
+    autoFocusMode = 'hand';
+    lastArmFocusFn = function(){ framePairShot(anchorObj, sweepBox); };
+    var box;
+    if (sweepBox){
+      box = sweepBox;
+    } else {
+      scene.updateMatrixWorld(true);
+      pairBox.setFromObject(anchorObj);
+      box = pairBox;
+    }
+    var center = new THREE.Vector3();
+    var size = new THREE.Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+    var radius = size.length() * 0.5;
+    var vFov = camera.fov * Math.PI / 180;
+    var aspect = camera.aspect || (host.clientWidth / host.clientHeight);
+    var hFov = 2 * Math.atan(Math.tan(vFov/2) * aspect);
+    var limitingFov = Math.min(vFov, hFov);
+    // Same three-quarter elevated composition as the hero shot, just
+    // scoped to the smaller local box so it fills the frame tighter.
+    var dist = Math.max((radius / 0.7) / Math.sin(limitingFov/2), 3) * getArmZoomScale();
+    var dir = new THREE.Vector3(0.68, 0.42, -0.85).normalize();
+    handTargetPos.copy(center).addScaledVector(dir, dist);
+    handTargetLookAt.copy(center);
+    handTargetUp.set(0, 1, 0);
+    autoFocusActive = true;
+  }
+
+  // Picks between the localized pair shot and the full hero shot for any
+  // "multiple parts moved" pose, without changing any other framing path.
+  // sweepBox/pairSweepBox: optional precomputed union boxes (start pose ∪
+  // end pose) — see computeSweepBoxes() below — so a tween's framing covers
+  // the whole arc the joints travel through, not just the endpoint.
+  function frameMultiJoint(groups, sweepBox, pairSweepBox){
+    var anchor = adjacentPairAnchor(groups);
+    if (anchor){
+      framePairShot(anchor, pairSweepBox);
+    } else {
+      frameHeroShot(sweepBox);
+    }
+  }
+
+  // ---------- Sweep box: union of a pose's bounding box at TWO points in time ----------
+  // A tween's destination-only framing can leave the hand travelling
+  // outside the frame mid-motion whenever the start pose sits somewhere
+  // meaningfully different from the end pose (e.g. a big shoulder swing, or
+  // playback jumping between two non-adjacent saved steps after reordering/
+  // deleting steps). Rather than trying to guess the swept volume
+  // analytically, this applies BOTH poses to the live rig in turn, measures
+  // the bounding box each time, and unions them — a box that's guaranteed
+  // to contain both endpoints. Since motion between two poses in this rig
+  // is always a smooth, monotonic interpolation of joint angles (no
+  // overshoot), the union of the two endpoint boxes also contains every
+  // intermediate frame for the parts that matter here (the hand/arm
+  // silhouette moves through a bounded arc between its start and end
+  // position — it doesn't loop back out past either endpoint).
+  // Restores whatever pose was live before returning, so calling this
+  // doesn't disturb the rig's on-screen state.
+  var sweepBoxA = new THREE.Box3();
+  var sweepBoxB = new THREE.Box3();
+  var sweepUnion = new THREE.Box3();
+  var pairSweepA = new THREE.Box3();
+  var pairSweepB = new THREE.Box3();
+  var pairSweepUnion = new THREE.Box3();
+  function computeSweepBoxes(fromPose, toPose, pairAnchorObj){
+    var restorePose = currentPose();
+    applyPose(fromPose, { silent: true });
+    scene.updateMatrixWorld(true);
+    sweepBoxA.setFromObject(armAssembly);
+    if (pairAnchorObj) pairSweepA.setFromObject(pairAnchorObj);
+    applyPose(toPose, { silent: true });
+    scene.updateMatrixWorld(true);
+    sweepBoxB.setFromObject(armAssembly);
+    if (pairAnchorObj) pairSweepB.setFromObject(pairAnchorObj);
+    sweepUnion.copy(sweepBoxA).union(sweepBoxB);
+    var pairResult = null;
+    if (pairAnchorObj){
+      pairSweepUnion.copy(pairSweepA).union(pairSweepB);
+      pairResult = pairSweepUnion;
+    }
+    applyPose(restorePose, { silent: true });
+    scene.updateMatrixWorld(true);
+    return { hero: sweepUnion, pair: pairResult };
+  }
+
+  function frameForGroups(groups){
+    return new Promise(function(resolve){
+      if (cameraMode === 'fixed'){
+        frameFixedWide(true);
+        renderer.render(scene, camera);
+        requestAnimationFrame(function(){ resolve(); });
+        return;
+      }
+      if (groups.multi){
+        // More than one part moved (fingers+arm, wrist+shoulder, etc.) —
+        // use a tight shot around just the two parts if they're adjacent,
+        // otherwise the full-coverage hero shot so nothing gets clipped.
+        // Still-capture case: start and end pose are the same (current
+        // live pose), so no sweep union is needed here.
+        frameMultiJoint(groups);
+      } else if (groups.arm){
+        focusArm();
+      } else {
+        focusFingers(true);
+      }
+      // Snap camera instantly for capture purposes instead of waiting on the
+      // slow lerp — copy target straight to live position/lookAt.
+      camPos.copy(handTargetPos);
+      camLookAt.copy(handTargetLookAt);
+      camera.position.copy(camPos);
+      camera.lookAt(camLookAt);
+      renderer.render(scene, camera);
+      requestAnimationFrame(function(){ resolve(); });
+    });
+  }
+
+  // High-quality still capture: temporarily renders at a higher pixel
+  // ratio (supersampled) than the live viewport uses, so saved gesture
+  // photos are crisp even though the on-screen canvas runs at a lower
+  // ratio for performance. Restores the normal ratio immediately after.
+  function captureImage(opts){
+    opts = opts || {};
+    var hq = opts.highQuality !== false; // default true for saved-step/photo captures
+    if (!hq){
+      renderer.render(scene, camera);
+      return renderer.domElement.toDataURL('image/png');
+    }
+    var prevRatio = renderer.getPixelRatio();
+    var targetRatio = Math.max(prevRatio, Math.min(window.devicePixelRatio || 1, 2) * 2, 3);
+    renderer.setPixelRatio(targetRatio);
+    renderer.setSize(host.clientWidth, host.clientHeight, false);
+    camera.aspect = host.clientWidth / host.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    var dataUrl = renderer.domElement.toDataURL('image/png', 1.0);
+    renderer.setPixelRatio(prevRatio);
+    renderer.setSize(host.clientWidth, host.clientHeight, false);
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    return dataUrl;
+  }
+
+  // ---------- Smooth interpolated motion between two poses ----------
+  // Eases every joint value from `fromPose` to `toPose` over durationMs,
+  // applying intermediate poses every frame (so a real device driven off
+  // the same pose stream would also move smoothly, not jump), and glides
+  // the camera toward the best-fit framing for toPose's moved groups at
+  // the same time. Resolves once the motion completes.
+  function easeInOutCubic(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+
+  var activeTween = null;
+  function tweenTo(fromPose, toPose, durationMs, groups, onFrame){
+    return new Promise(function(resolve){
+      if (activeTween) activeTween.cancelled = true;
+      var tweenState = { cancelled:false };
+      activeTween = tweenState;
+      // Force the camera to actively track this tween even if the user
+      // previously dragged the viewport (which sets autoFocusActive=false)
+      // or turned the ambient auto-focus feature off entirely — playback
+      // is an explicit, programmatic camera move, not the ambient feature,
+      // so it should never be silently skipped.
+      playbackActive = true;
+      autoFocusActive = true;
+
+      // Recompute "what actually moves in THIS transition" fresh from the
+      // real start/end poses, instead of trusting the caller-supplied
+      // `groups`. A step's stored groups are frozen at save time relative
+      // to whatever preceded it then — if the sequence was later
+      // reordered, had a step deleted, or was duplicated/loaded from the
+      // library, that stored value can silently go stale and no longer
+      // describe the transition actually being played. Recomputing here
+      // guarantees the camera always frames the transition it's really
+      // showing, not a transition that no longer exists.
+      //
+      // IMPORTANT: this must be the CUMULATIVE diff from rest for BOTH
+      // endpoints, unioned together — not just fromPose-vs-toPose. A
+      // step's own delta only tells you what changes IN that step; it
+      // says nothing about parts that were already moved by an earlier
+      // step and are just being held (e.g. fingers already curled, then
+      // a later step only turns the wrist). Framing off the delta alone
+      // undersizes the shot to "wrist only" while the still-curled hand
+      // sits outside that tight frame — the "hand goes off camera during
+      // group playback" bug. Framing off the cumulative union fixes that:
+      // the box/group classification always accounts for every joint
+      // that is actually non-neutral at either end of this transition,
+      // so a single incremental change still gets its tight close-up
+      // (nothing else is non-neutral), while a change layered on top of
+      // an already-posed hand correctly gets the wider multi/pair shot
+      // that keeps everything in frame.
+      var restPose = defaultPose();
+      var fromCumulative = movedGroups(fromPose, restPose);
+      var toCumulative = movedGroups(toPose, restPose);
+      var liveGroups = {
+        fingers: fromCumulative.fingers || toCumulative.fingers,
+        wrist: fromCumulative.wrist || toCumulative.wrist,
+        elbow: fromCumulative.elbow || toCumulative.elbow,
+        shoulder: fromCumulative.shoulder || toCumulative.shoulder
+      };
+      liveGroups.arm = liveGroups.wrist || liveGroups.elbow || liveGroups.shoulder;
+      var liveMovedCount = [liveGroups.fingers, liveGroups.wrist, liveGroups.elbow, liveGroups.shoulder].filter(Boolean).length;
+      liveGroups.multi = liveMovedCount > 1;
+
+      // Pre-orient the camera toward framing that covers the FULL SWING of
+      // this tween (not just the destination pose) so playback never lets
+      // the hand travel outside the frame partway through. In fixed mode
+      // the camera never moves at all — it stays parked on the one distant
+      // wide shot for the whole motion.
+      if (cameraMode === 'fixed'){
+        // Only bother measuring a sweep box when the fixed shot is about to
+        // be (re)computed fresh — once cached it deliberately stays locked
+        // for every subsequent step, per the "genuinely unmoving shot"
+        // design, so there's no need to recompute the sweep on every tween.
+        var fixedSweep = (fixedViewStale || !FIXED_VIEW_POS) ? computeSweepBoxes(fromPose, toPose, null).hero : null;
+        frameFixedWide(false, fixedSweep);
+      } else if (liveGroups.multi){
+        // More than one part moved together — glide to the same framing
+        // used for stills: a tight shot around just the two parts if
+        // they're adjacent, otherwise the full-coverage hero shot. Compute
+        // the sweep union (start pose ∪ end pose) so the shot covers
+        // wherever the joints travel through, not just where they land.
+        var pairAnchor = adjacentPairAnchor(liveGroups);
+        var sweep = computeSweepBoxes(fromPose, toPose, pairAnchor);
+        frameMultiJoint(liveGroups, sweep.hero, sweep.pair);
+      } else if (liveGroups.arm){
+        focusArm();
+      } else {
+        fingerViewStale = true;
+        focusFingers(true);
+      }
+
+      var startTime = performance.now();
+      function frame(now){
+        if (tweenState.cancelled) return resolve();
+        var t = Math.min(1, (now - startTime) / durationMs);
+        var eased = easeInOutCubic(t);
+        var mid = {};
+        jointIds.forEach(function(id){
+          var a = fromPose[id], b = toPose[id];
+          mid[id] = a + (b - a) * eased;
+        });
+        applyPose(mid, { silent: true });
+        if (onFrame) onFrame(eased);
+        if (t < 1){
+          requestAnimationFrame(frame);
+        } else {
+          if (activeTween === tweenState) activeTween = null;
+          if (!activeTween) playbackActive = false; // last tween in the chain finished
+          resolve();
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  window.HandRig = {
+    currentPose: currentPose,
+    applyPose: applyPose,
+    defaultPose: defaultPose,
+    movedGroups: movedGroups,
+    frameForGroups: frameForGroups,
+    captureImage: captureImage,
+    canvasEl: renderer.domElement, // raw <canvas> — the preview modal draws live frames from this into its own canvas to replay the actual recorded pose values
+    tweenTo: tweenTo,
+    setCameraMode: setCameraMode,
+    setArmZoomPercent: setArmZoomPercent,
+    onSliderChange: null // recorder attaches a callback here; called after every slider 'input' event fires
+  };
+
+  // Light hook: every slider that already has an 'input' listener above
+  // also notifies HandRig.onSliderChange, if the recorder script has set
+  // one, so it can show the floating Save-position button under whatever
+  // slider just moved.
+  jointIds.forEach(function(id){
+    document.getElementById(id).addEventListener('input', function(){
+      if (window.HandRig.onSliderChange) window.HandRig.onSliderChange(id);
+    });
+  });
+})();
+</script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBTCit215onnSyWXjDXRXU1tVsVmKW4MHU",
+  authDomain:"zippythebionicarm.firebaseapp.com",
+  databaseURL:"https://zippythebionicarm-default-rtdb.firebaseio.com",
+  projectId:"zippythebionicarm",
+  storageBucket:"zippythebionicarm.firebasestorage.app",
+  messagingSenderId:"1000242987274",
+  appId:"1:1000242987274:web:6ab9da304f2dfd6b9d3af3"
+});
+const db=firebase.database(), auth=firebase.auth();
+
+/* slider id -> command field the ESP32 reads, and slider -> motor calibration */
+const FIELD={thumb:'thumb',index:'index',middle:'middle',ring:'ring',pinky:'pinky',
+  'wrist-slider':'wrist','arm-slider':'arm','shoulder-slider':'shoulder',
+  'abduction-slider':'extend',      // "Rotation 2 (lift)" slider now drives the extend servo
+  'extend-slider':'abduction'};     // "Extend joint" slider now drives the lift servo
+/* These three are mounted the other way round: slider 0 sends 360, slider 360 sends 0. */
+const INVERT={'arm-slider':true,'extend-slider':true,'abduction-slider':true};
+const CAL={
+  thumb:{ui:[0,90],servo:[0,180]},index:{ui:[0,100],servo:[0,180]},middle:{ui:[0,100],servo:[0,180]},
+  ring:{ui:[0,100],servo:[0,180]},pinky:{ui:[0,100],servo:[0,180]},
+  'wrist-slider':{ui:[0,180],servo:[0,130],neutral:{ui:90,servo:70}},
+  'arm-slider':{ui:[68,110],servo:[0,360]},'shoulder-slider':{ui:[98,65],servo:[0,360]},
+  'abduction-slider':{ui:[26,70],servo:[0,360]},'extend-slider':{ui:[0,14],servo:[0,360]}
+};
+function calMotor(id,x){
+  const c=CAL[id],u0=c.ui[0],u1=c.ui[1],s0=c.servo[0],s1=c.servo[1];
+  x=Math.max(Math.min(u0,u1),Math.min(Math.max(u0,u1),x));
+  if(c.neutral){const nu=c.neutral.ui,ns=c.neutral.servo;
+    return Math.round(x<=nu?(nu-u0?ns+(s0-ns)*((nu-x)/(nu-u0)):ns):(u1-nu?ns+(s1-ns)*((x-nu)/(u1-nu)):ns))}
+  return Math.round(s0+(s1-s0)*((x-u0)/(u1-u0)));
+}
+
+function toMotor(id,x){
+  const v=calMotor(id,x);
+  return INVERT[id]?360-v:v;
+}
+
+const chip=document.getElementById('chip'),chipTxt=document.getElementById('chipTxt'),codeEl=document.getElementById('code');
+function setChip(kind,text){chip.className=kind;chipTxt.textContent=text;chipTxt.title=text}
+
+let chain=Promise.resolve(), initialSent=false;
+async function write(code,fields){
+  await db.ref('users/'+code+'/command').set(Object.assign({name:'finger_angles'},fields,{ts:firebase.database.ServerValue.TIMESTAMP}));
+}
+/* ids = which sliders to send. Values are read from the sliders at this moment. */
+function send(ids,label){
+  const code=codeEl.value.trim();
+  if(!code){setChip('err','Enter your device code to send');return Promise.resolve(false)}
+  localStorage.setItem('zippyCurrentUserCode',code);
+  const pose=window.HandRig.currentPose(), fields={};
+  ids.forEach(id=>{fields[FIELD[id]]=toMotor(id,pose[id])});
+  chain=chain.then(async()=>{
+    setChip('busy','Sending '+label+'…');
+    try{
+      try{await write(code,fields)}
+      catch(e){
+        if(!/PERMISSION_DENIED/i.test(String(e&&(e.code||e.message))))throw e;
+        await auth.signInAnonymously();           // rules may need a signed-in session
+        await write(code,fields);
+      }
+      setChip('ok','Sent '+label+' · '+Object.keys(fields).map(k=>k+' '+fields[k]).join(', '));
+      return true;
+    }catch(e){console.error(e);setChip('err','Not sent: '+((e&&e.message)||e));return false}
+  });
+  return chain;
+}
+const ALL=Object.keys(FIELD);
+async function sendRest(){
+  window.HandRig.applyPose(window.HandRig.defaultPose());   // sliders + 3D arm back to the natural position
+  initialSent=await send(ALL,'rest position');
+}
+
+function start(){
+  /* release a slider -> that joint's command goes straight out */
+  ALL.forEach(id=>{
+    document.getElementById(id).addEventListener('change',()=>{
+      const label=document.getElementById(id).closest('.finger-row').querySelector('.finger-label span').textContent;
+      send([id],label);
+    });
+  });
+  document.getElementById('resetBtn').addEventListener('click',sendRest);
+  codeEl.addEventListener('change',()=>{if(!initialSent)sendRest()});
+  const z=document.getElementById('arm-zoom-slider'),zo=document.getElementById('out-arm-zoom');
+  z.addEventListener('input',()=>{const p=parseInt(z.value,10)||100;zo.textContent=p+'%';window.HandRig.setArmZoomPercent(p)});
+  codeEl.value=localStorage.getItem('zippyCurrentUserCode')||'';
+  if(codeEl.value)sendRest();
+  else setChip('err','Enter your device code — the rest position is sent as soon as you do');
+}
+(function wait(){ if(window.__handRigReady&&window.HandRig)start(); else setTimeout(wait,50); })();
+</script>
+<script>
+/* ---------- ESP32 port connection status + Back button ----------
+   Same port handling as the main page: same baud rate, same saved-port key,
+   the port is actually opened and re-opened on load. */
+(function(){
+  var statusEl=document.getElementById('gestureConnectionStatus');
+  var statusTxt=document.getElementById('gestureConnectionText');
+  var BAUD=115200, INFO_KEY='zippySerialPortInfo';
+  var supported=('serial' in navigator);
+  var port=null, reader=null, loop=null, open=false, busy=false;
+
+  function setStatus(on){
+    statusEl.classList.toggle('connected',!!on);
+    statusEl.classList.toggle('disconnected',!on);
+    statusTxt.textContent=on?'Connected':'Disconnected';
+  }
+  async function readLoop(p){
+    while(p.readable&&port===p){
+      reader=p.readable.getReader();
+      try{ while(true){ var r=await reader.read(); if(r.done)break; } }catch(e){}
+      finally{ try{reader.releaseLock();}catch(e){} reader=null; }
+    }
+    if(port===p){ try{await p.close();}catch(e){} port=null; open=false; setStatus(false); }
+  }
+  async function openPort(p){
+    await p.open({baudRate:BAUD});
+    try{await p.setSignals({dataTerminalReady:false,requestToSend:false});}catch(e){}
+    try{localStorage.setItem(INFO_KEY,JSON.stringify(p.getInfo?p.getInfo():{}));}catch(e){}
+    port=p; open=true; setStatus(true);
+    loop=readLoop(p);
+  }
+  function matchesSaved(p){
+    try{
+      var saved=JSON.parse(localStorage.getItem(INFO_KEY)||'{}');
+      var info=p.getInfo?p.getInfo():{};
+      if(!saved.usbVendorId)return true;
+      return saved.usbVendorId===info.usbVendorId&&saved.usbProductId===info.usbProductId;
+    }catch(e){return true;}
+  }
+  async function autoOpen(list){
+    if(open||busy)return;
+    busy=true;
+    try{
+      for(var i=0;i<list.length;i++){
+        if(!matchesSaved(list[i]))continue;
+        try{await openPort(list[i]);break;}catch(e){}
+      }
+    }finally{busy=false;}
+  }
+  window.zippyReleasePort=async function(){
+    var p=port; if(!p)return;
+    port=null; open=false;
+    try{if(reader)await reader.cancel();}catch(e){}
+    try{if(loop)await loop;}catch(e){}
+    try{await p.close();}catch(e){}
+  };
+
+  /* Discreet port picker: a tiny faded button in the bottom-right corner. */
+  var portBtn=document.createElement('button');
+  portBtn.type='button';
+  portBtn.textContent='\u2699';
+  portBtn.title='Select USB port';
+  portBtn.setAttribute('aria-label','Select USB port');
+  portBtn.style.cssText='position:fixed;right:10px;bottom:10px;z-index:50;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:transparent;color:#8b8d92;font-size:13px;line-height:1;cursor:pointer;opacity:.18;transition:opacity .2s';
+  portBtn.addEventListener('mouseenter',function(){portBtn.style.opacity='1';});
+  portBtn.addEventListener('mouseleave',function(){portBtn.style.opacity='.18';});
+  portBtn.addEventListener('click',async function(){
+    if(!supported)return;
+    if(open){await window.zippyReleasePort();setStatus(false);return;}   // click again = disconnect
+    try{
+      var p=await navigator.serial.requestPort();   // pick the ESP32 once
+      await openPort(p);
+    }catch(e){}
+  });
+  document.body.appendChild(portBtn);
+
+  if(supported){
+    navigator.serial.addEventListener('connect',function(e){autoOpen([e.target]);});
+    navigator.serial.addEventListener('disconnect',function(e){
+      if(e.target===port){var p=port;port=null;open=false;try{p.close();}catch(x){} setStatus(false);}
+    });
+    navigator.serial.getPorts().then(autoOpen).catch(function(){});
+  }
+
+  /* Discreet port picker: a tiny faded button in the bottom-right corner. */
+  async function pickPort(){
+    if(!supported)return;
+    if(open){await window.zippyReleasePort();setStatus(false);return;}   // click again = disconnect
+    try{
+      var p=await navigator.serial.requestPort();   // user picks the ESP32 once
+      await openPort(p);
+    }catch(e){return;}                              // dialog cancelled / port busy
+  }
+  var portBtn=document.createElement('button');
+  portBtn.type='button';
+  portBtn.textContent='\u2699';
+  portBtn.title='Select USB port';
+  portBtn.setAttribute('aria-label','Select USB port');
+  portBtn.style.cssText='position:fixed;right:10px;bottom:10px;z-index:50;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:transparent;color:#8b8d92;font-size:13px;line-height:1;cursor:pointer;opacity:.18;transition:opacity .2s';
+  portBtn.addEventListener('mouseenter',function(){portBtn.style.opacity='1';});
+  portBtn.addEventListener('mouseleave',function(){portBtn.style.opacity='.18';});
+  portBtn.addEventListener('click',pickPort);
+  document.body.appendChild(portBtn);
+
+  /* Back button: smooth fade, same tab; port is released first so the main page can re-open it. */
+  var b=document.getElementById('zippyBackBtn');
+  if(b){
+    document.documentElement.style.transition='opacity .25s ease';
+    b.addEventListener('click',function(e){
+      if(e.metaKey||e.ctrlKey||e.shiftKey||e.button!==0)return;
+      e.preventDefault();
+      document.documentElement.style.opacity='0';
+      var go=false;function leave(){if(go)return;go=true;window.location.href=b.href;}
+      var fade=new Promise(function(r){setTimeout(r,250);});
+      var rel=Promise.resolve(window.zippyReleasePort()).catch(function(){});
+      Promise.all([fade,rel]).then(leave);
+      setTimeout(leave,1500);
+    });
+    window.addEventListener('pageshow',function(ev){if(ev.persisted)document.documentElement.style.opacity='1';});
+  }
+})();
+</script>
+</body>
+</html>
